@@ -1,0 +1,413 @@
+/* public/style.css */
+
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+*, *:before, *:after {
+    box-sizing: inherit;
+}
+
+body {
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    display: flex;
+    background-color: #f4f7f6;
+    color: #333;
+}
+
+#scheduler {
+    display: flex;
+    gap: 25px;
+    padding: 20px;
+    background-color: #ffffff;
+    width: 100%;
+    min-height: 100%;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+}
+
+/* --- Team Management --- */
+#team-management {
+    flex: 0 1 300px;
+    min-width: 260px;
+    max-width: 400px;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid #e8eeec;
+    padding-right: 25px;
+}
+
+#team-management h3 {
+    margin-top: 0;
+    color: #1a535c;
+    border-bottom: 2px solid #f0f4f3;
+    padding-bottom: 10px;
+    margin-bottom: 15px;
+    font-weight: 600;
+}
+#team-input-area {
+    margin-bottom: 15px;
+    display: flex;
+}
+#team-input-area input[type="text"] {
+    flex-grow: 1;
+    margin-right: 8px;
+}
+#team-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    flex-grow: 1;
+    overflow-y: auto;
+    border: 1px solid #e8eeec;
+    border-radius: 4px;
+    padding: 8px;
+    background-color: #fdfdfd;
+    min-height: 150px;
+}
+#team-list li {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0f4f3;
+    font-size: 0.95em;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+#team-list li:last-child {
+    border-bottom: none;
+}
+#team-list button { /* Remove button in team list */
+    background: none;
+    border: none;
+    color: #ff6b6b;
+    cursor: pointer;
+    font-size: 1.1em;
+    padding: 0 5px;
+    line-height: 1;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+#team-list button:hover {
+    color: #c94040;
+    background-color: #ffeeee;
+}
+
+/* --- Unavailability Section --- */
+#unavailability-section {
+    margin-top: 25px; /* Space above the section */
+    padding-top: 15px;
+    border-top: 2px solid #f0f4f3;
+}
+#unavailability-section h4 {
+     margin-top: 0;
+     margin-bottom: 10px;
+     color: #1a535c;
+     font-weight: 600;
+     font-size: 1.1em;
+}
+#unavailability-input-area {
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping on narrow widths */
+    gap: 10px;
+    margin-bottom: 10px;
+}
+#unavailability-input-area label {
+     font-size: 0.9em;
+     color: #555;
+     margin-bottom: 3px; /* Space below label */
+     display: block; /* Make label take its own line */
+}
+#unavailability-input-area > div {
+    flex: 1; /* Allow fields to grow */
+    min-width: 120px; /* Prevent fields becoming too narrow */
+}
+
+#unavailability-input-area input[type="date"],
+#unavailability-input-area select {
+    width: 100%; /* Make inputs fill their container */
+    padding: 6px 8px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    font-size: 0.95em;
+}
+ #unavailability-input-area button {
+    align-self: flex-end; /* Align button to bottom if wrapped */
+    flex-grow: 0; /* Don't allow button to grow */
+ }
+
+#unavailable-list {
+    list-style: none;
+    padding: 0;
+    margin-top: 10px;
+    max-height: 150px; /* Limit height */
+    overflow-y: auto;
+    border: 1px solid #e8eeec;
+    border-radius: 4px;
+    padding: 5px;
+    background-color: #fdfdfd;
+    font-size: 0.9em;
+}
+#unavailable-list li {
+    padding: 5px 8px;
+    border-bottom: 1px dashed #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+#unavailable-list li:last-child { border-bottom: none; }
+#unavailable-list button { /* Remove button styling */
+     background: none; border: none; color: #ff6b6b; cursor: pointer;
+     font-size: 1em; padding: 0 3px; line-height: 1; border-radius: 3px;
+}
+#unavailable-list button:hover { color: #c94040; background-color: #ffeeee; }
+
+
+/* --- Calendar View --- */
+#calendar-view {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+#calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 0 5px;
+}
+#calendar-nav-buttons {
+    display: flex;
+    gap: 5px;
+    order: 1;
+}
+#calendar-header h2 { /* Month/Year Title */
+    margin: 0;
+    font-size: 1.6em;
+    color: #1a535c;
+    font-weight: 600;
+    order: 2;
+    text-align: center;
+    flex-grow: 1;
+    min-width: 150px;
+}
+#randomizeBtn { /* Specific style for randomize button */
+    order: 3;
+    background-color: #ffc107;
+    border-color: #f5b700;
+    color: #333;
+ }
+ #randomizeBtn:hover {
+    background-color: #e0a800;
+    border-color: #d39e00;
+ }
+#logoutBtn { /* Style for logout button */
+    order: 4; /* Ensure it comes last in the default row */
+    background-color: #dc3545;
+    border-color: #dc3545;
+    color: white;
+    margin-left: 10px; /* Space from previous button */
+}
+#logoutBtn:hover {
+    background-color: #c82333;
+    border-color: #bd2130;
+}
+
+#calendar-header button { /* General nav buttons styling (overridden by specifics above if needed) */
+    background-color: #f0f4f3;
+    border: 1px solid #dadedc;
+    color: #4a7c85;
+    padding: 7px 14px; /* Match general button */
+    cursor: pointer;
+    border-radius: 5px; /* Match general button */
+    font-size: 0.9em; /* Match general button */
+    transition: background-color 0.2s ease, border-color 0.2s ease; /* Match general button */
+}
+#calendar-header button:hover {
+    background-color: #e8eeec;
+    border-color: #c8d2cf;
+}
+
+#calendar {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    flex-grow: 1;
+}
+#calendar th {
+    border: 1px solid #dadedc;
+    padding: 10px 5px;
+    text-align: center;
+    background-color: #f8fafa;
+    font-weight: 600;
+    font-size: 0.9em;
+    color: #4a7c85;
+}
+#calendar td {
+    border: 1px solid #e8eeec;
+    padding: 6px 8px;
+    vertical-align: top;
+    height: 110px;
+    background-color: #fff;
+    text-align: left;
+    position: relative;
+    font-size: 0.9em;
+    overflow: hidden;
+}
+#calendar td.other-month {
+    color: #adb5bd;
+    background-color: #f8fafa;
+}
+#calendar td.weekend {
+    /* Optional: slightly different bg for weekends */
+    /* background-color: #fcfdff; */
+}
+#calendar td.assignment-day {
+     background-color: #eef6f8;
+}
+
+.date-number {
+    display: block;
+    position: absolute;
+    top: 4px;
+    right: 6px;
+    font-weight: 600;
+    font-size: 0.85em;
+    color: #6c757d;
+    background-color: rgba(255, 255, 255, 0.6);
+    padding: 1px 3px;
+    border-radius: 2px;
+}
+.assigned-position {
+    font-size: 0.85em;
+    color: #343a40;
+    display: block;
+    margin-top: 4px;
+    line-height: 1.45;
+    padding-left: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.assigned-position:first-of-type {
+     margin-top: 22px;
+}
+.assigned-position strong {
+    color: #17a2b8;
+    min-width: 45px;
+    display: inline-block;
+    margin-right: 5px;
+}
+.assignment-skipped {
+    font-size: 0.8em;
+    color: #dc3545;
+    font-style: italic;
+    padding-left: 2px;
+    margin-top: 4px;
+}
+
+/* --- General Input/Button --- */
+/* Base button style (used if not overridden by specific ID/class) */
+button {
+    padding: 7px 14px;
+    cursor: pointer;
+    border: 1px solid #ccc;
+    background-color: #f0f0f0;
+    border-radius: 5px;
+    transition: background-color 0.2s ease, border-color 0.2s ease;
+    font-size: 0.9em;
+}
+button:hover {
+    background-color: #e6e6e6;
+    border-color: #bbb;
+}
+
+/* Specific Add Buttons */
+#addMemberBtn, #addUnavailabilityBtn {
+    background-color: #2a9d8f;
+    color: white;
+    border: none;
+    font-weight: 500;
+}
+#addMemberBtn:hover, #addUnavailabilityBtn:hover {
+    background-color: #268d80;
+}
+
+/* Inputs and Select */
+input[type="text"], input[type="date"], select {
+    padding: 7px 10px;
+    border: 1px solid #ced4da;
+    border-radius: 5px;
+    font-size: 0.95em;
+    width: 100%; /* Ensure consistency */
+}
+/* Adjust width for text input in its flex container */
+#team-input-area input[type="text"] {
+     width: auto; /* Let flexbox handle width */
+}
+
+input:focus, select:focus {
+    outline: none;
+    border-color: #86b7fe;
+    box-shadow: 0 0 0 0.2rem rgba(13,110,253,.25);
+}
+
+/* --- Responsive Adjustments --- */
+@media (max-width: 800px) {
+    #scheduler {
+        flex-direction: column;
+        height: auto;
+        min-height: 100%;
+        padding: 15px;
+        gap: 20px;
+    }
+
+    #team-management {
+        flex-basis: auto;
+        flex-shrink: 0;
+        min-width: unset;
+        max-width: 100%;
+        border-right: none;
+        padding-right: 0;
+        border-bottom: 1px solid #e8eeec;
+        padding-bottom: 20px;
+    }
+
+    #team-list {
+        max-height: 250px;
+        min-height: 100px;
+        flex-grow: 0;
+    }
+    #unavailability-section {
+        margin-top: 20px;
+    }
+    #unavailable-list {
+        max-height: 120px;
+    }
+
+     #calendar-header {
+        /* Adjust order on mobile if needed */
+        /* Example: Make title first */
+        /* #calendar-header h2 { order: 1; text-align: left; } */
+        /* #calendar-nav-buttons { order: 2; } */
+        /* #randomizeBtn { order: 3; } */
+        /* #logoutBtn { order: 4; margin-left: auto; } */ /* Push logout right? */
+    }
+
+     #calendar td {
+         height: 100px;
+         font-size: 0.85em;
+     }
+     .date-number { font-size: 0.8em; }
+     .assigned-position { font-size: 0.8em; }
+}
+
+/* Login page specific styles (if not embedding in login.html) */
+/* You might move these to style.css or keep them embedded in login.html */
+/* Example: */
+/* body.login-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f4f7f6; } */
+/* #login-container { ... } */
+/* ... etc ... */
