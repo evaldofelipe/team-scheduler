@@ -7,83 +7,85 @@ const logoutBtn = document.getElementById('logoutBtn');
 
 // --- State Variables ---
 let currentDate = new Date();
-let teamMembers = []; // Populated from API
-let positions = [];   // Populated from API {id, name}
-let unavailableEntries = []; // Populated from API {id, member, date}
+let teamMembers = [];
+let positions = [];
+let unavailableEntries = [];
+let overrideDays = []; // <<< NEW: Store override date strings
 let assignmentCounter = 0;
 
 // --- Configuration ---
-const assignmentDaysOfWeek = [0, 3, 6]; // Sun, Wed, Sat
+const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
 
 // --- Helper Functions ---
- function formatDateYYYYMMDD(dateInput) {
-    try {
-        const date = new Date(dateInput);
-        const year = date.getUTCFullYear();
-        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-        const day = String(date.getUTCDate()).padStart(2, '0');
-        return `${year}-${month}-${day}`;
-    } catch (e) { return ""; }
+ function formatDateYYYYMMDD(dateInput) { /* ... (no change) ... */
+    try { const date = new Date(dateInput); const year = date.getUTCFullYear(); const month = String(date.getUTCMonth() + 1).padStart(2, '0'); const day = String(date.getUTCDate()).padStart(2, '0'); return `${year}-${month}-${day}`; } catch (e) { return ""; }
 }
 
 // --- API Interaction ---
  async function fetchData() {
     try {
-        const [membersRes, unavailRes, positionsRes] = await Promise.all([
+        // <<< Fetch overrides along with other data >>>
+        const [membersRes, unavailRes, positionsRes, overridesRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
-            fetch('/api/positions') // Fetch positions for rendering
+            fetch('/api/positions'),
+            fetch('/api/overrides') // <<< NEW
         ]);
 
-         if ([membersRes.status, unavailRes.status, positionsRes.status].includes(401)) {
+         if ([membersRes.status, unavailRes.status, positionsRes.status, overridesRes.status].includes(401)) {
              window.location.href = '/login.html?message=Session expired. Please log in.';
-             return false; // Indicate failure
+             return false;
          }
-         if (!membersRes.ok || !unavailRes.ok || !positionsRes.ok) {
+         if (!membersRes.ok || !unavailRes.ok || !positionsRes.ok || !overridesRes.ok) { // <<< Updated check
             let errorStatuses = [];
             if (!membersRes.ok) errorStatuses.push(`Members: ${membersRes.status}`);
             if (!unavailRes.ok) errorStatuses.push(`Unavailability: ${unavailRes.status}`);
             if (!positionsRes.ok) errorStatuses.push(`Positions: ${positionsRes.status}`);
+            if (!overridesRes.ok) errorStatuses.push(`Overrides: ${overridesRes.status}`); // <<< NEW
             throw new Error(`HTTP error! Statuses - ${errorStatuses.join(', ')}`);
          }
 
         teamMembers = await membersRes.json();
         unavailableEntries = await unavailRes.json();
-        positions = await positionsRes.json(); // Store fetched positions
+        positions = await positionsRes.json();
+        overrideDays = await overridesRes.json(); // <<< Store fetched override dates
 
         console.log("User View Fetched Team Members:", teamMembers);
-        console.log("User View Fetched Unavailability:", unavailableEntries);
         console.log("User View Fetched Positions:", positions);
-        return true; // Indicate success
+        console.log("User View Fetched Unavailability:", unavailableEntries);
+        console.log("User View Fetched Override Days:", overrideDays); // <<< Log overrides
+        return true;
 
     } catch (error) {
         console.error("Failed to fetch initial data:", error);
         alert("Failed to load data. Please check the console and try refreshing.");
-        return false; // Indicate failure
+        return false;
     }
 }
 
 // --- UI Rendering ---
-function isMemberUnavailable(memberName, dateYYYYMMDD) {
-    // Ensure unavailableEntries is loaded before checking
-    if (!unavailableEntries) return false;
-    return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
+function isMemberUnavailable(memberName, dateYYYYMMDD) { /* ... (no change) ... */
+    if (!unavailableEntries) return false; return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
 }
 
+// <<< NEW: Helper to check if assignments should happen >>>
+function shouldAssignOnDate(dayOfWeek, dateStr) {
+    // Check default days OR override list
+    return DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) || overrideDays.includes(dateStr);
+}
+
+// <<< UPDATE: renderCalendar uses shouldAssignOnDate >>>
 function renderCalendar(year, month, membersToAssign = teamMembers) {
-    // Calendar rendering logic is identical to admin.js, using fetched positions
     calendarBody.innerHTML = '';
     monthYearHeader.textContent = `${new Date(year, month).toLocaleString('default', { month: 'long' })} ${year}`;
-
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const daysInMonth = lastDayOfMonth.getDate();
     const startDayOfWeek = firstDayOfMonth.getDay();
-
     assignmentCounter = 0;
     let date = 1;
     const canAssign = membersToAssign && membersToAssign.length > 0;
-    const hasPositions = positions && positions.length > 0; // Use fetched positions
+    const hasPositions = positions && positions.length > 0;
 
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
@@ -100,9 +102,10 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                 cell.appendChild(dateNumber);
                 if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
 
-                if (canAssign && hasPositions && assignmentDaysOfWeek.includes(dayOfWeek)) { // Use hasPositions
+                // <<< Use the new check function >>>
+                if (canAssign && hasPositions && shouldAssignOnDate(dayOfWeek, currentCellDateStr)) {
                     cell.classList.add('assignment-day');
-                    positions.forEach(position => { // Use fetched positions
+                    positions.forEach(position => {
                         let assignedMemberName = null;
                         let attempts = 0;
                         while (assignedMemberName === null && attempts < membersToAssign.length) {
@@ -111,26 +114,20 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                             if (!isMemberUnavailable(potentialMemberName, currentCellDateStr)) {
                                 assignedMemberName = potentialMemberName;
                                 assignmentCounter = (assignmentCounter + attempts + 1);
-                            } else {
-                                attempts++;
-                            }
+                            } else { attempts++; }
                         }
                         const assignmentDiv = document.createElement('div');
                         if (assignedMemberName) {
                             assignmentDiv.classList.add('assigned-position');
-                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`; // Use position.name
+                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                         } else {
                             assignmentDiv.classList.add('assignment-skipped');
-                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`; // Use position.name
+                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`;
                             if (attempts === membersToAssign.length) { assignmentCounter++; }
                         }
                         cell.appendChild(assignmentDiv);
                     });
-                    if (membersToAssign.length > 0) {
-                       assignmentCounter %= membersToAssign.length;
-                    } else {
-                       assignmentCounter = 0;
-                    }
+                    if (membersToAssign.length > 0) { assignmentCounter %= membersToAssign.length; } else { assignmentCounter = 0; }
                 }
                 date++;
             }
@@ -142,30 +139,20 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 }
 
 // --- Logout ---
- async function logout() {
-    try {
-        const response = await fetch('/logout', { method: 'POST' });
-        if (response.ok) { window.location.href = '/login.html'; }
-        else { alert('Logout failed.'); }
-    } catch (error) { console.error('Logout error:', error); alert('An error occurred during logout.'); }
+ async function logout() { /* ... (no change) ... */
+    try { const response = await fetch('/logout', { method: 'POST' }); if (response.ok) { window.location.href = '/login.html'; } else { alert('Logout failed.'); } } catch (error) { console.error('Logout error:', error); alert('Logout error.'); }
 }
 
 // --- Event Listeners ---
- prevMonthBtn.addEventListener('click', () => {
-    currentDate.setMonth(currentDate.getMonth() - 1);
-    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-});
-nextMonthBtn.addEventListener('click', () => {
-    currentDate.setMonth(currentDate.getMonth() + 1);
-    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-});
+ prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
+ nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
  logoutBtn.addEventListener('click', logout);
 
 // --- Initial Load ---
 async function initializeUserView() {
-    if(await fetchData()){ // Fetch data first and check success
+    if(await fetchData()){ // Fetch all data (including overrides)
         renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Then render calendar
     }
 }
 
-initializeUserView(); // Start the process
+initializeUserView();

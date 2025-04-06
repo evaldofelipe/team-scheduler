@@ -66,3 +66,17 @@ INSERT INTO users (username, password, role) VALUES
 -- Optional: Add some initial unavailability (Uncomment if needed)
 -- INSERT INTO unavailability (member_name, unavailable_date) VALUES ('Bob', '2024-03-20')
 -- ON DUPLICATE KEY UPDATE member_name=member_name;
+
+-- Add this CREATE TABLE statement to your database_setup.sql file
+-- Rerun the script against your database
+
+-- Create table for overriding default assignment days
+CREATE TABLE IF NOT EXISTS override_assignment_days (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    override_date DATE NOT NULL UNIQUE, -- Store the specific date to enable assignments
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Optional: Add a sample override day (Uncomment if needed)
+-- INSERT INTO override_assignment_days (override_date) VALUES ('2024-04-01') -- Example: April 1st, 2024
+-- ON DUPLICATE KEY UPDATE override_date=override_date; -- Avoid error if it exists
