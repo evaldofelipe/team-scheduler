@@ -11,8 +11,8 @@ const SESSION_SECRET = process.env.SESSION_SECRET || 'your-very-secret-key'; // 
 // Database connection details (use environment variables in production)
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'root', // Replace with your DB user
-    password: process.env.DB_PASSWORD || '', // Replace with your DB password
+    user: process.env.DB_USER || 'your_db_user', // Replace with your DB user
+    password: process.env.DB_PASSWORD || 'your_db_password', // Replace with your DB password
     database: process.env.DB_NAME || 'team_scheduler_db',
     waitForConnections: true,
     connectionLimit: 10,
@@ -42,15 +42,28 @@ app.use(session({
 const requireLogin = (requiredRole = 'user') => {
     return (req, res, next) => {
         if (!req.session.user) {
-            return res.status(401).redirect('/login.html?message=Please log in');
+            // For API requests, send 401, otherwise redirect
+            if (req.headers.accept && req.headers.accept.includes('application/json')) {
+                 return res.status(401).json({ message: 'Unauthorized: Please log in.' });
+            } else {
+                 return res.status(401).redirect('/login.html?message=Please log in');
+            }
         }
         // Check role if specific role is required
-        if (requiredRole && req.session.user.role !== requiredRole && req.session.user.role !== 'admin') { // Admins can access everything below their level
-             if (requiredRole === 'admin' && req.session.user.role === 'user'){
-                 return res.status(403).send('Forbidden: Insufficient privileges.');
-             }
+        // Admins can access everything
+        if (req.session.user.role === 'admin') {
+             return next();
         }
-        next(); // User is authenticated and has necessary role (or is admin)
+        // Users can only access 'user' level routes
+        if (requiredRole === 'admin' && req.session.user.role !== 'admin') {
+            if (req.headers.accept && req.headers.accept.includes('application/json')) {
+                 return res.status(403).json({ message: 'Forbidden: Insufficient privileges.' });
+            } else {
+                return res.status(403).send('Forbidden: Insufficient privileges.');
+            }
+        }
+        // If role is 'user' or not specified, and user is logged in (any role), allow access
+        next();
     };
 };
 
@@ -107,6 +120,8 @@ app.post('/logout', (req, res) => {
     });
 });
 
+// --- TEAM MEMBERS API ---
+
 // Get Team Members Endpoint (accessible by admin and user)
 app.get('/api/team-members', requireLogin(), async (req, res) => {
     try {
@@ -138,7 +153,8 @@ app.post('/api/team-members', requireLogin('admin'), async (req, res) => {
 
 // Delete Team Member Endpoint (admin only)
 app.delete('/api/team-members/:name', requireLogin('admin'), async (req, res) => {
-    const { name } = req.params;
+    // Decode name from URL parameter
+    const name = decodeURIComponent(req.params.name);
     if (!name) {
         return res.status(400).send('Member name is required');
     }
@@ -165,6 +181,60 @@ app.delete('/api/team-members/:name', requireLogin('admin'), async (req, res) =>
         connection.release(); // Release connection back to pool
     }
 });
+
+// --- POSITIONS API ---
+
+// Get Positions Endpoint (accessible by admin and user)
+app.get('/api/positions', requireLogin(), async (req, res) => {
+    try {
+        // Order by display_order then name for consistent results
+        const [positions] = await pool.query('SELECT id, name FROM positions ORDER BY display_order, name');
+        res.json(positions); // Send array of {id, name} objects
+    } catch (error) {
+        console.error('Error fetching positions:', error);
+        res.status(500).send('Error fetching positions');
+    }
+});
+
+// Add Position Endpoint (admin only)
+app.post('/api/positions', requireLogin('admin'), async (req, res) => {
+    const { name } = req.body;
+    if (!name) {
+        return res.status(400).send('Position name is required');
+    }
+    try {
+        // Add display_order logic later if needed, default is 0
+        const [result] = await pool.query('INSERT INTO positions (name) VALUES (?)', [name]);
+        res.status(201).json({ success: true, id: result.insertId, name: name });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).send('Position name already exists');
+        }
+        console.error('Error adding position:', error);
+        res.status(500).send('Error adding position');
+    }
+});
+
+// Delete Position Endpoint (admin only)
+app.delete('/api/positions/:id', requireLogin('admin'), async (req, res) => {
+    const { id } = req.params;
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).send('Valid Position ID is required');
+    }
+    try {
+        const [result] = await pool.query('DELETE FROM positions WHERE id = ?', [id]);
+        if (result.affectedRows > 0) {
+            res.json({ success: true });
+        } else {
+            res.status(404).send('Position not found');
+        }
+    } catch (error) {
+        console.error('Error deleting position:', error);
+        res.status(500).send('Error deleting position');
+    }
+});
+
+// --- UNAVAILABILITY API ---
 
 // Get Unavailability Endpoint (accessible by admin and user)
 app.get('/api/unavailability', requireLogin(), async (req, res) => {
@@ -239,7 +309,8 @@ app.get('/admin', requireLogin('admin'), (req, res) => {
 });
 
 // Serve User page (protected)
-app.get('/user', requireLogin('user'), (req, res) => { // Allow 'user' or 'admin'
+// Use requireLogin() which defaults to 'user' level access (allows admin too)
+app.get('/user', requireLogin(), (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'user.html'));
 });
 

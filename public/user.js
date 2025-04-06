@@ -8,54 +8,58 @@ const logoutBtn = document.getElementById('logoutBtn');
 // --- State Variables ---
 let currentDate = new Date();
 let teamMembers = []; // Populated from API
-let unavailableEntries = []; // Populated from API
-let assignmentCounter = 0; // Still used for rendering logic
+let positions = [];   // Populated from API {id, name}
+let unavailableEntries = []; // Populated from API {id, member, date}
+let assignmentCounter = 0;
 
 // --- Configuration ---
 const assignmentDaysOfWeek = [0, 3, 6]; // Sun, Wed, Sat
-const positions = ['Sound', 'Media', 'Live'];
 
 // --- Helper Functions ---
- function formatDateYYYYMMDD(dateInput) { /* ... (same as before) ... */
-     try {
+ function formatDateYYYYMMDD(dateInput) {
+    try {
         const date = new Date(dateInput);
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-         if (typeof dateInput === 'string' && dateInput.includes('T')) {
-            return date.toISOString().slice(0, 10);
-         } else {
-             return `${year}-${month}-${day}`;
-         }
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
     } catch (e) { return ""; }
 }
 
 // --- API Interaction ---
  async function fetchData() {
     try {
-        const [membersRes, unavailRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes] = await Promise.all([
             fetch('/api/team-members'),
-            fetch('/api/unavailability')
+            fetch('/api/unavailability'),
+            fetch('/api/positions') // Fetch positions for rendering
         ]);
 
-         if (!membersRes.ok || !unavailRes.ok) {
-             if (membersRes.status === 401 || unavailRes.status === 401) {
-                 window.location.href = '/login.html?message=Session expired. Please log in.';
-                 return; // Stop execution
-             }
-            throw new Error(`HTTP error! status: ${membersRes.status} or ${unavailRes.status}`);
-        }
+         if ([membersRes.status, unavailRes.status, positionsRes.status].includes(401)) {
+             window.location.href = '/login.html?message=Session expired. Please log in.';
+             return false; // Indicate failure
+         }
+         if (!membersRes.ok || !unavailRes.ok || !positionsRes.ok) {
+            let errorStatuses = [];
+            if (!membersRes.ok) errorStatuses.push(`Members: ${membersRes.status}`);
+            if (!unavailRes.ok) errorStatuses.push(`Unavailability: ${unavailRes.status}`);
+            if (!positionsRes.ok) errorStatuses.push(`Positions: ${positionsRes.status}`);
+            throw new Error(`HTTP error! Statuses - ${errorStatuses.join(', ')}`);
+         }
 
         teamMembers = await membersRes.json();
-         // User view also needs unavailability data for correct rendering
         unavailableEntries = await unavailRes.json();
+        positions = await positionsRes.json(); // Store fetched positions
 
         console.log("User View Fetched Team Members:", teamMembers);
         console.log("User View Fetched Unavailability:", unavailableEntries);
+        console.log("User View Fetched Positions:", positions);
+        return true; // Indicate success
 
     } catch (error) {
         console.error("Failed to fetch initial data:", error);
         alert("Failed to load data. Please check the console and try refreshing.");
+        return false; // Indicate failure
     }
 }
 
@@ -67,9 +71,8 @@ function isMemberUnavailable(memberName, dateYYYYMMDD) {
 }
 
 function renderCalendar(year, month, membersToAssign = teamMembers) {
-    // ... (renderCalendar logic is IDENTICAL to admin.js) ...
-    // ... (It reads from the fetched teamMembers and unavailableEntries) ...
-     calendarBody.innerHTML = '';
+    // Calendar rendering logic is identical to admin.js, using fetched positions
+    calendarBody.innerHTML = '';
     monthYearHeader.textContent = `${new Date(year, month).toLocaleString('default', { month: 'long' })} ${year}`;
 
     const firstDayOfMonth = new Date(year, month, 1);
@@ -80,28 +83,26 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     assignmentCounter = 0;
     let date = 1;
     const canAssign = membersToAssign && membersToAssign.length > 0;
+    const hasPositions = positions && positions.length > 0; // Use fetched positions
 
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
         for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
             const cell = document.createElement('td');
-
             if (week === 0 && dayOfWeek < startDayOfWeek) { cell.classList.add('other-month'); }
             else if (date > daysInMonth) { cell.classList.add('other-month'); }
             else {
-                const currentCellDate = new Date(Date.UTC(year, month, date)); // Use UTC date
+                const currentCellDate = new Date(Date.UTC(year, month, date));
                 const currentCellDateStr = formatDateYYYYMMDD(currentCellDate);
-
                 const dateNumber = document.createElement('span');
                 dateNumber.classList.add('date-number');
                 dateNumber.textContent = date;
                 cell.appendChild(dateNumber);
-
                 if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
 
-                if (canAssign && assignmentDaysOfWeek.includes(dayOfWeek)) {
+                if (canAssign && hasPositions && assignmentDaysOfWeek.includes(dayOfWeek)) { // Use hasPositions
                     cell.classList.add('assignment-day');
-                    positions.forEach(position => {
+                    positions.forEach(position => { // Use fetched positions
                         let assignedMemberName = null;
                         let attempts = 0;
                         while (assignedMemberName === null && attempts < membersToAssign.length) {
@@ -117,15 +118,19 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                         const assignmentDiv = document.createElement('div');
                         if (assignedMemberName) {
                             assignmentDiv.classList.add('assigned-position');
-                            assignmentDiv.innerHTML = `<strong>${position}:</strong> ${assignedMemberName}`;
+                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`; // Use position.name
                         } else {
                             assignmentDiv.classList.add('assignment-skipped');
-                            assignmentDiv.innerHTML = `<strong>${position}:</strong> (Unavailable)`;
+                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`; // Use position.name
                             if (attempts === membersToAssign.length) { assignmentCounter++; }
                         }
                         cell.appendChild(assignmentDiv);
                     });
-                    assignmentCounter %= membersToAssign.length;
+                    if (membersToAssign.length > 0) {
+                       assignmentCounter %= membersToAssign.length;
+                    } else {
+                       assignmentCounter = 0;
+                    }
                 }
                 date++;
             }
@@ -140,15 +145,9 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
  async function logout() {
     try {
         const response = await fetch('/logout', { method: 'POST' });
-        if (response.ok) {
-            window.location.href = '/login.html';
-        } else {
-            alert('Logout failed. Please try again.');
-        }
-    } catch (error) {
-        console.error('Logout error:', error);
-        alert('An error occurred during logout.');
-    }
+        if (response.ok) { window.location.href = '/login.html'; }
+        else { alert('Logout failed.'); }
+    } catch (error) { console.error('Logout error:', error); alert('An error occurred during logout.'); }
 }
 
 // --- Event Listeners ---
@@ -164,8 +163,9 @@ nextMonthBtn.addEventListener('click', () => {
 
 // --- Initial Load ---
 async function initializeUserView() {
-    await fetchData(); // Fetch data first
-    renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Then render calendar
+    if(await fetchData()){ // Fetch data first and check success
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Then render calendar
+    }
 }
 
 initializeUserView(); // Start the process

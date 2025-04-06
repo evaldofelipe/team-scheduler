@@ -11,6 +11,14 @@ CREATE TABLE IF NOT EXISTS team_members (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Create the positions table
+CREATE TABLE IF NOT EXISTS positions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    display_order INT DEFAULT 0, -- For controlling display order later
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create the unavailability table
 CREATE TABLE IF NOT EXISTS unavailability (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -47,10 +55,14 @@ INSERT INTO users (username, password, role) VALUES
 INSERT INTO users (username, password, role) VALUES
 ('regular_user', 'userpass', 'user'); -- !! Use a HASHED password in production !!
 
--- Optional: Add some initial team members
+-- Optional: Add some initial team members (Uncomment if needed)
 -- INSERT INTO team_members (name) VALUES ('Alice'), ('Bob'), ('Charlie')
 -- ON DUPLICATE KEY UPDATE name=name; -- Avoid error if they exist
 
--- Optional: Add some initial unavailability
+-- Optional: Add some initial positions (Uncomment if needed)
+-- INSERT INTO positions (name) VALUES ('Sound'), ('Media'), ('Live')
+-- ON DUPLICATE KEY UPDATE name=name; -- Avoid error if they exist
+
+-- Optional: Add some initial unavailability (Uncomment if needed)
 -- INSERT INTO unavailability (member_name, unavailable_date) VALUES ('Bob', '2024-03-20')
 -- ON DUPLICATE KEY UPDATE member_name=member_name;
