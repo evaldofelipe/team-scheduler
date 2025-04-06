@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Schedule Viewer</title>
+    <link rel="stylesheet" href="style.css"> <!-- Link shared CSS -->
+</head>
+<body>
+    <div id="scheduler">
+        <!-- Calendar Section ONLY -->
+        <div id="calendar-view">
+             <div id="calendar-header">
+                 <div id="calendar-nav-buttons">
+                     <button id="prevMonthBtn">< Prev</button>
+                     <button id="nextMonthBtn">Next ></button>
+                 </div>
+                <h2 id="monthYearHeader">Month Year</h2>
+                 <!-- Removed Randomize Button -->
+                 <button id="logoutBtn" style="background-color: #dc3545; color: white; border: none; margin-left: 10px;">Logout</button>
+            </div>
+            <table id="calendar">
+                <thead>
+                    <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
+                </thead>
+                <tbody id="calendar-body">
+                    <!-- Calendar days generated here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <script src="user.js"></script> <!-- Link user JS -->
+</body>
+</html>

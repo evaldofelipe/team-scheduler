@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Position Scheduler</title>
+    <!-- Add the updated CSS from the previous step here -->
+    <style>
+        /* Existing CSS from previous step... */
+        html, body { height: 100%; margin: 0; padding: 0; box-sizing: border-box; }
+        *, *:before, *:after { box-sizing: inherit; }
+        body { font-family: system-ui, /* ... */ sans-serif; display: flex; background-color: #f4f7f6; color: #333; }
+        #scheduler { display: flex; gap: 25px; padding: 20px; background-color: #ffffff; width: 100%; min-height: 100%; box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+
+        /* --- Team Management --- */
+        #team-management { flex: 0 1 300px; min-width: 260px; max-width: 400px; display: flex; flex-direction: column; border-right: 1px solid #e8eeec; padding-right: 25px; }
+        #team-management h3 { margin-top: 0; color: #1a535c; border-bottom: 2px solid #f0f4f3; padding-bottom: 10px; margin-bottom: 15px; font-weight: 600; }
+        #team-input-area { margin-bottom: 15px; display: flex; }
+        #team-input-area input[type="text"] { flex-grow: 1; margin-right: 8px; }
+        #team-list { list-style: none; padding: 0; margin: 0; flex-grow: 1; overflow-y: auto; border: 1px solid #e8eeec; border-radius: 4px; padding: 8px; background-color: #fdfdfd; min-height: 150px; }
+        #team-list li { padding: 8px 12px; border-bottom: 1px solid #f0f4f3; font-size: 0.95em; display: flex; justify-content: space-between; align-items: center; }
+        #team-list li:last-child { border-bottom: none; }
+        #team-list button { background: none; border: none; color: #ff6b6b; cursor: pointer; font-size: 1.1em; padding: 0 5px; line-height: 1; border-radius: 3px; transition: background-color 0.2s ease; }
+        #team-list button:hover { color: #c94040; background-color: #ffeeee; }
+
+        /* --- Unavailability Section --- */
+        #unavailability-section {
+            margin-top: 25px; /* Space above the section */
+            padding-top: 15px;
+            border-top: 2px solid #f0f4f3;
+        }
+        #unavailability-section h4 {
+             margin-top: 0;
+             margin-bottom: 10px;
+             color: #1a535c;
+             font-weight: 600;
+             font-size: 1.1em;
+        }
+        #unavailability-input-area {
+            display: flex;
+            flex-wrap: wrap; /* Allow wrapping on narrow widths */
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        #unavailability-input-area label {
+             font-size: 0.9em;
+             color: #555;
+             margin-bottom: 3px; /* Space below label */
+             display: block; /* Make label take its own line */
+        }
+        #unavailability-input-area > div {
+            flex: 1; /* Allow fields to grow */
+            min-width: 120px; /* Prevent fields becoming too narrow */
+        }
+
+        #unavailability-input-area input[type="date"],
+        #unavailability-input-area select {
+            width: 100%; /* Make inputs fill their container */
+            padding: 6px 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 0.95em;
+        }
+         #unavailability-input-area button {
+            align-self: flex-end; /* Align button to bottom if wrapped */
+            flex-grow: 0; /* Don't allow button to grow */
+         }
+
+
+        #unavailable-list {
+            list-style: none;
+            padding: 0;
+            margin-top: 10px;
+            max-height: 150px; /* Limit height */
+            overflow-y: auto;
+            border: 1px solid #e8eeec;
+            border-radius: 4px;
+            padding: 5px;
+            background-color: #fdfdfd;
+            font-size: 0.9em;
+        }
+        #unavailable-list li {
+            padding: 5px 8px;
+            border-bottom: 1px dashed #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        #unavailable-list li:last-child { border-bottom: none; }
+        #unavailable-list button { /* Remove button styling */
+             background: none; border: none; color: #ff6b6b; cursor: pointer;
+             font-size: 1em; padding: 0 3px; line-height: 1; border-radius: 3px;
+        }
+        #unavailable-list button:hover { color: #c94040; background-color: #ffeeee; }
+
+
+        /* --- Calendar View (existing styles...) --- */
+        #calendar-view { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
+        #calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; padding: 0 5px; }
+        #calendar-nav-buttons { display: flex; gap: 5px; order: 1; }
+        #calendar-header h2 { margin: 0; font-size: 1.6em; color: #1a535c; font-weight: 600; order: 2; text-align: center; flex-grow: 1; min-width: 150px; }
+        #randomizeBtn { order: 3; background-color: #ffc107; border-color: #f5b700; color: #333; }
+        #randomizeBtn:hover { background-color: #e0a800; border-color: #d39e00; }
+        #calendar-header button { background-color: #f0f4f3; border: 1px solid #dadedc; color: #4a7c85; }
+        #calendar-header button:hover { background-color: #e8eeec; border-color: #c8d2cf; }
+        #calendar { width: 100%; border-collapse: collapse; table-layout: fixed; flex-grow: 1; }
+        #calendar th { border: 1px solid #dadedc; padding: 10px 5px; text-align: center; background-color: #f8fafa; font-weight: 600; font-size: 0.9em; color: #4a7c85; }
+        #calendar td { border: 1px solid #e8eeec; padding: 6px 8px; vertical-align: top; height: 110px; background-color: #fff; text-align: left; position: relative; font-size: 0.9em; overflow: hidden; }
+        #calendar td.other-month { color: #adb5bd; background-color: #f8fafa; }
+        #calendar td.assignment-day { background-color: #eef6f8; }
+        .date-number { display: block; position: absolute; top: 4px; right: 6px; font-weight: 600; font-size: 0.85em; color: #6c757d; background-color: rgba(255, 255, 255, 0.6); padding: 1px 3px; border-radius: 2px; }
+        .assigned-position { font-size: 0.85em; color: #343a40; display: block; margin-top: 4px; line-height: 1.45; padding-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .assigned-position:first-of-type { margin-top: 22px; }
+        .assigned-position strong { color: #17a2b8; min-width: 45px; display: inline-block; margin-right: 5px; }
+        .assignment-skipped { /* Style for skipped assignment (optional) */
+            font-size: 0.8em;
+            color: #dc3545; /* Red color */
+            font-style: italic;
+            padding-left: 2px;
+            margin-top: 4px;
+        }
+
+        /* --- General Input/Button --- */
+        button { padding: 7px 14px; cursor: pointer; border: 1px solid #ccc; background-color: #f0f0f0; border-radius: 5px; transition: background-color 0.2s ease, border-color 0.2s ease; font-size: 0.9em; }
+        button:hover { background-color: #e6e6e6; border-color: #bbb; }
+        #addMemberBtn, #addUnavailabilityBtn { background-color: #2a9d8f; color: white; border: none; font-weight: 500; }
+        #addMemberBtn:hover, #addUnavailabilityBtn:hover { background-color: #268d80; }
+        input[type="text"], input[type="date"], select { padding: 7px 10px; border: 1px solid #ced4da; border-radius: 5px; font-size: 0.95em; }
+        input:focus, select:focus { outline: none; border-color: #86b7fe; box-shadow: 0 0 0 0.2rem rgba(13,110,253,.25); }
+
+        /* --- Responsive Adjustments --- */
+        @media (max-width: 800px) {
+            #scheduler { flex-direction: column; height: auto; min-height: 100%; padding: 15px; gap: 20px; }
+            #team-management { flex-basis: auto; flex-shrink: 0; min-width: unset; max-width: 100%; border-right: none; padding-right: 0; border-bottom: 1px solid #e8eeec; padding-bottom: 20px; }
+            #team-list { max-height: 250px; min-height: 100px; flex-grow: 0; }
+            #unavailability-section { margin-top: 20px; }
+            #unavailable-list { max-height: 120px; } /* Adjust height */
+            #calendar td { height: 100px; font-size: 0.85em; }
+            .date-number { font-size: 0.8em; }
+            .assigned-position { font-size: 0.8em; }
+        }
+    </style>
+    <script src="admin.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    
+<!-- Add somewhere visible, e.g., near the calendar header -->
+<button id="logoutBtn" style="background-color: #dc3545; color: white; border: none; margin-left: 10px;">Logout</button>
+
+<div id="scheduler">
+    <!-- Team Management Section -->
+    <div id="team-management">
+        <h3>Team Members</h3>
+        <div id="team-input-area">
+            <input type="text" id="memberNameInput" placeholder="Enter member name">
+            <button id="addMemberBtn">Add</button>
+        </div>
+        <ul id="team-list">
+            <!-- Team members listed here -->
+        </ul>
+
+        <!-- NEW Unavailability Section -->
+        <div id="unavailability-section">
+            <h4>Member Unavailability</h4>
+            <div id="unavailability-input-area">
+                <div>
+                    <label for="unavailabilityDate">Date:</label>
+                    <input type="date" id="unavailabilityDate">
+                </div>
+                <div>
+                    <label for="unavailabilityMember">Member:</label>
+                    <select id="unavailabilityMember">
+                        <option value="">-- Select Member --</option>
+                        <!-- Member options populated by JS -->
+                    </select>
+                </div>
+                <button id="addUnavailabilityBtn">Mark Unavailable</button>
+            </div>
+            <ul id="unavailable-list">
+                <!-- Unavailable entries listed here -->
+            </ul>
+        </div>
+        <!-- END Unavailability Section -->
+
+    </div>
+
+    <!-- Calendar Section -->
+    <div id="calendar-view">
+        <!-- Calendar header and table structure remains the same -->
+         <div id="calendar-header">
+             <div id="calendar-nav-buttons">
+                 <button id="prevMonthBtn">< Prev</button>
+                 <button id="nextMonthBtn">Next ></button>
+             </div>
+            <h2 id="monthYearHeader">Month Year</h2>
+            <button id="randomizeBtn">Randomize Assignments</button>
+        </div>
+        <table id="calendar">
+            <thead>
+                <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
+            </thead>
+            <tbody id="calendar-body">
+                <!-- Calendar days generated here -->
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    // Existing const declarations...
+    const monthYearHeader = document.getElementById('monthYearHeader');
+    const calendarBody = document.getElementById('calendar-body');
+    const prevMonthBtn = document.getElementById('prevMonthBtn');
+    const nextMonthBtn = document.getElementById('nextMonthBtn');
+    const randomizeBtn = document.getElementById('randomizeBtn');
+    const memberNameInput = document.getElementById('memberNameInput');
+    const addMemberBtn = document.getElementById('addMemberBtn');
+    const teamList = document.getElementById('team-list');
+
+    // New const declarations for unavailability
+    const unavailabilityDateInput = document.getElementById('unavailabilityDate');
+    const unavailabilityMemberSelect = document.getElementById('unavailabilityMember');
+    const addUnavailabilityBtn = document.getElementById('addUnavailabilityBtn');
+    const unavailableList = document.getElementById('unavailable-list');
+
+
+    let currentDate = new Date();
+    let teamMembers = [];
+    let assignmentCounter = 0;
+    let unavailableEntries = []; // <<< NEW: Stores unavailability rules
+
+    // --- Configuration ---
+    const assignmentDaysOfWeek = [0, 3, 6]; // Sun, Wed, Sat
+    const positions = ['Sound', 'Media', 'Live'];
+
+    // --- Helper Functions ---
+    function shuffleArray(array) { /* ... (Fisher-Yates shuffle) ... */
+        for (let i = array.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [array[i], array[j]] = [array[j], array[i]];
+        }
+    }
+
+    /**
+     * Formats a Date object or string into YYYY-MM-DD format.
+     * @param {Date|string} dateInput Date to format.
+     * @returns {string} Date string in YYYY-MM-DD format or empty string if invalid.
+     */
+    function formatDateYYYYMMDD(dateInput) {
+        try {
+            const date = new Date(dateInput);
+             // Adjust for potential timezone offset if dateInput is just 'YYYY-MM-DD' string
+             // by getting parts in UTC to avoid day shifts
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0'); // getMonth is 0-indexed
+            const day = String(date.getDate()).padStart(2, '0');
+            // Reconstruct based on input type to be safer with timezones
+             if (typeof dateInput === 'string' && dateInput.includes('T')) {
+                // If it's likely an ISO string from date object
+                return date.toISOString().slice(0, 10);
+             } else {
+                 // If it's from date picker or just date parts
+                 return `${year}-${month}-${day}`;
+             }
+
+        } catch (e) {
+            console.error("Error formatting date:", e);
+            return "";
+        }
+    }
+
+
+    // --- Team Member & Unavailability Functions ---
+
+    function renderTeamList() {
+        teamList.innerHTML = '';
+        teamMembers.forEach((member, index) => {
+            // ... (render list item with remove button) ...
+            const li = document.createElement('li');
+            li.textContent = member;
+            const deleteBtn = document.createElement('button');
+            deleteBtn.textContent = 'x';
+            deleteBtn.title = `Remove ${member}`;
+            deleteBtn.onclick = () => removeMember(index);
+            li.appendChild(deleteBtn);
+            teamList.appendChild(li);
+        });
+        populateMemberDropdown(); // <<< Update dropdown when team changes
+    }
+
+    function populateMemberDropdown() {
+        const currentSelection = unavailabilityMemberSelect.value; // Preserve selection if possible
+        unavailabilityMemberSelect.innerHTML = '<option value="">-- Select Member --</option>'; // Reset
+        teamMembers.forEach(member => {
+            const option = document.createElement('option');
+            option.value = member;
+            option.textContent = member;
+            if (member === currentSelection) {
+                option.selected = true; // Keep member selected if they still exist
+            }
+            unavailabilityMemberSelect.appendChild(option);
+        });
+    }
+
+    function renderUnavailableList() {
+        unavailableList.innerHTML = '';
+        // Sort for display consistency (optional)
+        unavailableEntries.sort((a, b) => a.date.localeCompare(b.date) || a.member.localeCompare(b.member));
+
+        unavailableEntries.forEach((entry, index) => {
+            const li = document.createElement('li');
+            const displayDate = new Date(entry.date + 'T00:00:00').toLocaleDateString(); // Format for display
+            li.textContent = `${displayDate} - ${entry.member}`;
+
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = 'x';
+            removeBtn.title = `Remove unavailability for ${entry.member} on ${displayDate}`;
+            removeBtn.onclick = () => removeUnavailability(index);
+            li.appendChild(removeBtn);
+            unavailableList.appendChild(li);
+        });
+    }
+
+     function addMember() {
+        const name = memberNameInput.value.trim();
+        if (name && !teamMembers.includes(name)) {
+            teamMembers.push(name);
+            memberNameInput.value = '';
+            renderTeamList(); // This now calls populateMemberDropdown
+            renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+        } else if (teamMembers.includes(name)) {
+             alert(`"${name}" is already in the list.`);
+        }
+         memberNameInput.focus();
+    }
+
+     function removeMember(indexToRemove) {
+        if (indexToRemove >= 0 && indexToRemove < teamMembers.length) {
+            const removedMemberName = teamMembers[indexToRemove];
+            teamMembers.splice(indexToRemove, 1);
+
+            // Also remove any unavailability entries for this member
+            unavailableEntries = unavailableEntries.filter(entry => entry.member !== removedMemberName);
+
+            renderTeamList(); // Updates list and dropdown
+            renderUnavailableList(); // Update the displayed rules
+            renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+        }
+    }
+
+    function addUnavailability() {
+        const dateValue = unavailabilityDateInput.value; // Already YYYY-MM-DD
+        const memberName = unavailabilityMemberSelect.value;
+
+        if (!dateValue || !memberName) {
+            alert("Please select both a date and a team member.");
+            return;
+        }
+
+        const newEntry = { date: dateValue, member: memberName };
+
+        // Check for duplicates
+        const isDuplicate = unavailableEntries.some(
+            entry => entry.date === newEntry.date && entry.member === newEntry.member
+        );
+
+        if (isDuplicate) {
+            alert(`${memberName} is already marked as unavailable on ${new Date(dateValue + 'T00:00:00').toLocaleDateString()}.`);
+            return;
+        }
+
+        unavailableEntries.push(newEntry);
+        console.log("Unavailable Entries:", unavailableEntries); // For debugging
+
+        // Clear inputs (optional: maybe keep member selected?)
+        // unavailabilityDateInput.value = '';
+        // unavailabilityMemberSelect.value = '';
+
+        renderUnavailableList(); // Update the displayed list
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Update calendar view
+    }
+
+     function removeUnavailability(indexToRemove) {
+        if (indexToRemove >= 0 && indexToRemove < unavailableEntries.length) {
+            unavailableEntries.splice(indexToRemove, 1);
+            renderUnavailableList();
+            renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+        }
+    }
+
+    // --- Calendar Functions ---
+
+     /**
+     * Checks if a member is unavailable on a specific date.
+     * @param {string} memberName The name of the member.
+     * @param {string} dateYYYYMMDD The date in 'YYYY-MM-DD' format.
+     * @returns {boolean} True if unavailable, false otherwise.
+     */
+     function isMemberUnavailable(memberName, dateYYYYMMDD) {
+         return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
+     }
+
+    /**
+     * Renders the calendar... (Updated assignment logic)
+     */
+    function renderCalendar(year, month, membersToAssign = teamMembers) {
+        calendarBody.innerHTML = '';
+        monthYearHeader.textContent = `${new Date(year, month).toLocaleString('default', { month: 'long' })} ${year}`;
+
+        const firstDayOfMonth = new Date(year, month, 1);
+        const lastDayOfMonth = new Date(year, month + 1, 0);
+        const daysInMonth = lastDayOfMonth.getDate();
+        const startDayOfWeek = firstDayOfMonth.getDay();
+
+        assignmentCounter = 0; // Reset main counter for consistent assignment start
+        let date = 1;
+        const canAssign = membersToAssign && membersToAssign.length > 0;
+
+        for (let week = 0; week < 6; week++) {
+            const row = document.createElement('tr');
+            for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) { // 0=Sun, 1=Mon, ...
+                const cell = document.createElement('td');
+
+                if (week === 0 && dayOfWeek < startDayOfWeek) { cell.classList.add('other-month'); }
+                else if (date > daysInMonth) { cell.classList.add('other-month'); }
+                else {
+                    // Valid day cell
+                    const currentCellDate = new Date(year, month, date);
+                    const currentCellDateStr = formatDateYYYYMMDD(currentCellDate); // Get YYYY-MM-DD
+
+                    const dateNumber = document.createElement('span');
+                    dateNumber.classList.add('date-number');
+                    dateNumber.textContent = date;
+                    cell.appendChild(dateNumber);
+
+                    if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
+
+                    // --- Updated Assignment Logic ---
+                    if (canAssign && assignmentDaysOfWeek.includes(dayOfWeek)) {
+                        cell.classList.add('assignment-day');
+
+                        positions.forEach(position => {
+                            let assignedMemberName = null;
+                            let attempts = 0; // Prevent infinite loop if all are unavailable
+
+                            while (assignedMemberName === null && attempts < membersToAssign.length) {
+                                const potentialMemberIndex = (assignmentCounter + attempts) % membersToAssign.length;
+                                const potentialMemberName = membersToAssign[potentialMemberIndex];
+
+                                if (!isMemberUnavailable(potentialMemberName, currentCellDateStr)) {
+                                    // Found an available member!
+                                    assignedMemberName = potentialMemberName;
+                                    // **Important**: Increment the main counter only AFTER assigning
+                                    // and use the correct offset 'attempts' for the next slot search.
+                                    assignmentCounter = (assignmentCounter + attempts + 1); // Move main counter past the found member
+                                } else {
+                                    // This member is unavailable, try the next one
+                                    attempts++;
+                                }
+                            }
+
+                            // Display assignment or 'unavailable' message
+                            const assignmentDiv = document.createElement('div');
+                            if (assignedMemberName) {
+                                assignmentDiv.classList.add('assigned-position');
+                                assignmentDiv.innerHTML = `<strong>${position}:</strong> ${assignedMemberName}`;
+                            } else {
+                                // Optional: Indicate no one was available for this slot
+                                assignmentDiv.classList.add('assignment-skipped'); // Use a specific class
+                                assignmentDiv.innerHTML = `<strong>${position}:</strong> (Unavailable)`;
+                                // We still need to advance the main counter conceptually,
+                                // otherwise the same unavailable pool might be hit repeatedly.
+                                // Advance by the number of attempts (which == membersToAssign.length here)
+                                // Effectively, it's like we used up a slot in the rotation.
+                                if (attempts === membersToAssign.length) {
+                                    assignmentCounter++;
+                                }
+                            }
+                            cell.appendChild(assignmentDiv);
+                        });
+                         // Ensure assignment counter wraps correctly after a full cycle check
+                         assignmentCounter %= membersToAssign.length;
+                    }
+                    date++;
+                }
+                row.appendChild(cell);
+            }
+            calendarBody.appendChild(row);
+             if (date > daysInMonth && week > 0) break;
+        }
+    }
+
+    // --- Event Listeners ---
+    prevMonthBtn.addEventListener('click', () => {
+        currentDate.setMonth(currentDate.getMonth() - 1);
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+    });
+    nextMonthBtn.addEventListener('click', () => {
+        currentDate.setMonth(currentDate.getMonth() + 1);
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+    });
+    randomizeBtn.addEventListener('click', () => {
+        if (teamMembers.length > 0) {
+            let shuffledMembers = [...teamMembers];
+            shuffleArray(shuffledMembers);
+            renderCalendar(currentDate.getFullYear(), currentDate.getMonth(), shuffledMembers);
+        } else {
+            alert("Add team members before randomizing assignments.");
+        }
+    });
+    addMemberBtn.addEventListener('click', addMember);
+    memberNameInput.addEventListener('keypress', (event) => { if (event.key === 'Enter') { event.preventDefault(); addMember(); }});
+
+    // New listeners for unavailability
+    addUnavailabilityBtn.addEventListener('click', addUnavailability);
+    // Optional: Allow adding unavailability on Enter key press if desired (e.g., after selecting member)
+    // unavailabilityMemberSelect.addEventListener('keypress', ...);
+
+
+    // --- Initial Render ---
+    renderTeamList(); // Populates team list & member dropdown
+    renderUnavailableList(); // Render empty list initially
+    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+
+</script>
+
+</body>
+</html>
