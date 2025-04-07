@@ -15,7 +15,11 @@ CREATE TABLE IF NOT EXISTS team_members (
 CREATE TABLE IF NOT EXISTS positions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
-    display_order INT DEFAULT 0, -- For controlling display order later
+    display_order INT DEFAULT 0,
+    -- NEW COLUMNS for assignment rules --
+    assignment_type ENUM('regular', 'specific_days') NOT NULL DEFAULT 'regular',
+    allowed_days VARCHAR(15) NULL DEFAULT NULL, -- Comma-separated days (0-6), only used if type is 'specific_days'
+    -- END NEW COLUMNS --
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
