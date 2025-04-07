@@ -46,6 +46,17 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+
+-- Create the special_assignments table for adding temporary slots
+CREATE TABLE IF NOT EXISTS special_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    assignment_date DATE NOT NULL,
+    position_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE, -- Ensure position exists, cascade delete if position is removed
+    UNIQUE KEY unique_special_assignment (assignment_date, position_id) -- Prevent adding the same position slot twice on the same date
+);
+
 -- --- Sample Data (IMPORTANT: Use secure passwords and hashing in real apps!) ---
 
 -- Delete existing sample users first to avoid errors on re-run

@@ -7,23 +7,21 @@ const path = require('path');
 const bcrypt = require('bcrypt');
 
 // --- Configuration ---
-// Now variables from .env will override defaults if present
 const PORT = process.env.PORT || 3000;
-// Use a strong, unique secret from .env or generate one if missing (but log a warning)
 const SESSION_SECRET = process.env.SESSION_SECRET || 'default-insecure-secret-change-me';
-const SALT_ROUNDS = parseInt(process.env.SALT_ROUNDS || '10'); // Get salt rounds from env or default to 10
+const SALT_ROUNDS = parseInt(process.env.SALT_ROUNDS || '10');
 
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
-    user: process.env.DB_USER || 'your_db_user', // Default user if not in .env
-    password: process.env.DB_PASSWORD || 'your_db_password', // Default password if not in .env
-    database: process.env.DB_NAME || 'team_scheduler_db', // Default db name if not in .env
+    user: process.env.DB_USER || 'your_db_user',
+    password: process.env.DB_PASSWORD || 'your_db_password',
+    database: process.env.DB_NAME || 'team_scheduler_db',
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0
 };
 
-// Add a check for the session secret
+// --- Sanity Checks ---
 if (SESSION_SECRET === 'default-insecure-secret-change-me') {
     console.warn('************************************************************************');
     console.warn('WARNING: Using default session secret. Please set SESSION_SECRET in your .env file!');
@@ -43,7 +41,7 @@ const pool = mysql.createPool(dbConfig);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(session({
-    secret: SESSION_SECRET, // Use the variable loaded from .env or default
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
@@ -52,40 +50,28 @@ app.use(session({
     }
 }));
 
-// <<< --- ADD requireLogin DEFINITION BACK HERE --- >>>
+// --- Authorization Middleware ---
 const requireLogin = (requiredRole = 'user') => {
     return (req, res, next) => {
         if (!req.session.user) {
-            // If not logged in
             if (req.headers.accept && req.headers.accept.includes('application/json')) {
-                 // Respond with JSON for API requests
                  return res.status(401).json({ success: false, message: 'Unauthorized: Please log in.' });
             } else {
-                 // Redirect browser requests to login page
                  return res.status(401).redirect('/login.html?message=Please log in');
             }
         }
-        // User is logged in, now check role if needed
-        // Admins automatically pass any role check
-        if (req.session.user.role === 'admin') {
-            return next();
-        }
-        // If admin role is specifically required, but user is not admin
+        if (req.session.user.role === 'admin') { return next(); } // Admins pass all checks
         if (requiredRole === 'admin' && req.session.user.role !== 'admin') {
              if (req.headers.accept && req.headers.accept.includes('application/json')) {
-                 // Respond with JSON for API requests
                  return res.status(403).json({ success: false, message: 'Forbidden: Insufficient privileges.' });
             } else {
-                // Send forbidden message for browser requests
                 return res.status(403).send('Forbidden: Insufficient privileges.');
             }
         }
-        // If user role is sufficient (covers 'user' requirement when role is 'user')
-        next(); // Proceed to the route handler
+        // User role is sufficient ('user' requirement met by 'user' role)
+        next();
     };
 };
-// <<< --- END OF requireLogin DEFINITION --- >>>
-
 
 // --- Static Files ---
 app.use(express.static(path.join(__dirname, 'public')));
@@ -134,7 +120,7 @@ app.post('/logout', (req, res) => {
 
 
 // --- TEAM MEMBERS API ---
-app.get('/api/team-members', requireLogin(), async (req, res) => { // Now requireLogin is defined
+app.get('/api/team-members', requireLogin(), async (req, res) => {
     try {
         const [members] = await pool.query('SELECT name FROM team_members ORDER BY name');
         res.json(members.map(m => m.name));
@@ -157,6 +143,7 @@ app.delete('/api/team-members/:name', requireLogin('admin'), async (req, res) =>
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
+        // Also remove related unavailability entries
         await connection.query('DELETE FROM unavailability WHERE member_name = ?', [name]);
         const [result] = await connection.query('DELETE FROM team_members WHERE name = ?', [name]);
         await connection.commit();
@@ -193,13 +180,30 @@ app.post('/api/positions', requireLogin('admin'), async (req, res) => {
 
 app.delete('/api/positions/:id', requireLogin('admin'), async (req, res) => {
     const { id } = req.params; if (!id || isNaN(parseInt(id))) { return res.status(400).send('Valid numeric position ID is required.'); }
+    const positionId = parseInt(id);
+    const connection = await pool.getConnection(); // Use transaction due to FK cascade potential
     try {
-        const [result] = await pool.query('DELETE FROM positions WHERE id = ?', [id]);
-        if (result.affectedRows > 0) { res.json({ success: true }); }
-        else { res.status(404).send('Position not found.'); }
+        await connection.beginTransaction();
+        // Note: Cascading delete for special_assignments is handled by DB FOREIGN KEY constraint
+        const [result] = await connection.query('DELETE FROM positions WHERE id = ?', [positionId]);
+        await connection.commit();
+
+        if (result.affectedRows > 0) {
+            res.json({ success: true });
+        } else {
+            res.status(404).send('Position not found.');
+        }
     } catch (error) {
+        await connection.rollback();
         console.error('Error deleting position:', error);
-        res.status(500).send('Server error deleting position.');
+        // Check for FK constraint error if cascade didn't work as expected (less likely)
+        if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+            res.status(409).send('Cannot delete position as it might be referenced in schedules or special assignments.');
+        } else {
+            res.status(500).send('Server error deleting position.');
+        }
+    } finally {
+        connection.release();
     }
 });
 
@@ -211,7 +215,7 @@ app.get('/api/unavailability', requireLogin(), async (req, res) => {
         const formattedEntries = entries.map(entry => ({
             id: entry.id,
             member: entry.member_name,
-            date: entry.unavailable_date.toISOString().split('T')[0]
+            date: entry.unavailable_date.toISOString().split('T')[0] // Format date as YYYY-MM-DD
         }));
         res.json(formattedEntries);
     } catch (error) { console.error('Error fetching unavailability:', error); res.status(500).send('Server error fetching unavailability.'); }
@@ -222,6 +226,12 @@ app.post('/api/unavailability', requireLogin('admin'), async (req, res) => {
     if (!member || !date) { return res.status(400).send('Member name and date are required.'); }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { return res.status(400).send('Invalid date format. Use YYYY-MM-DD.'); }
     try {
+        // Check if member exists first
+        const [memberExists] = await pool.query('SELECT 1 FROM team_members WHERE name = ?', [member]);
+        if (memberExists.length === 0) {
+            return res.status(404).send(`Team member '${member}' not found.`);
+        }
+        // Proceed with insert
         const [result] = await pool.query('INSERT INTO unavailability (member_name, unavailable_date) VALUES (?, ?)', [member, date]);
         res.status(201).json({ success: true, id: result.insertId, member, date });
     } catch (error) {
@@ -244,7 +254,7 @@ app.delete('/api/unavailability/:id', requireLogin('admin'), async (req, res) =>
 app.get('/api/overrides', requireLogin(), async (req, res) => {
     try {
         const [overrides] = await pool.query('SELECT override_date FROM override_assignment_days ORDER BY override_date');
-        const overrideDates = overrides.map(o => o.override_date.toISOString().split('T')[0]);
+        const overrideDates = overrides.map(o => o.override_date.toISOString().split('T')[0]); // Format date YYYY-MM-DD
         res.json(overrideDates);
     } catch (error) {
         console.error('Error fetching override days:', error);
@@ -279,6 +289,99 @@ app.delete('/api/overrides/:date', requireLogin('admin'), async (req, res) => {
     }
 });
 
+// --- SPECIAL ASSIGNMENTS API ---  <<< NEW SECTION >>>
+app.get('/api/special-assignments', requireLogin(), async (req, res) => {
+    try {
+        // Join with positions to get the name
+        const [assignments] = await pool.query(`
+            SELECT sa.id, sa.assignment_date, sa.position_id, p.name AS position_name
+            FROM special_assignments sa
+            JOIN positions p ON sa.position_id = p.id
+            ORDER BY sa.assignment_date, p.name
+        `);
+        // Format the date for consistency
+        const formattedAssignments = assignments.map(sa => ({
+            ...sa,
+            date: sa.assignment_date.toISOString().split('T')[0] // Format date YYYY-MM-DD
+        }));
+        res.json(formattedAssignments);
+    } catch (error) {
+        console.error('Error fetching special assignments:', error);
+        res.status(500).send('Server error fetching special assignments.');
+    }
+});
+
+app.post('/api/special-assignments', requireLogin('admin'), async (req, res) => {
+    const { date, position_id } = req.body;
+
+    // Validation
+    if (!date || !position_id) {
+        return res.status(400).send('Date and Position ID are required.');
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).send('Invalid date format. Use YYYY-MM-DD.');
+    }
+    if (isNaN(parseInt(position_id))) {
+        return res.status(400).send('Invalid Position ID. Must be a number.');
+    }
+    const numericPositionId = parseInt(position_id);
+
+    try {
+        // Check if position exists
+        const [positionExists] = await pool.query('SELECT name FROM positions WHERE id = ?', [numericPositionId]);
+        if (positionExists.length === 0) {
+            return res.status(404).send(`Position with ID ${numericPositionId} not found.`);
+        }
+        const positionName = positionExists[0].name; // Get name for response
+
+        // Insert the special assignment
+        const [result] = await pool.query(
+            'INSERT INTO special_assignments (assignment_date, position_id) VALUES (?, ?)',
+            [date, numericPositionId]
+        );
+
+        res.status(201).json({
+            success: true,
+            id: result.insertId,
+            date: date,
+            position_id: numericPositionId,
+            position_name: positionName // Include name in response
+        });
+
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).send('This position is already added as a special assignment on this date.');
+        }
+        // Handle potential FK constraint errors during insert (less likely due to check above)
+        if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+             return res.status(404).send(`Position with ID ${numericPositionId} not found.`);
+        }
+        console.error('Error adding special assignment:', error);
+        res.status(500).send('Server error adding special assignment.');
+    }
+});
+
+app.delete('/api/special-assignments/:id', requireLogin('admin'), async (req, res) => {
+    const { id } = req.params;
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).send('Valid numeric special assignment ID is required.');
+    }
+    const numericId = parseInt(id);
+
+    try {
+        const [result] = await pool.query('DELETE FROM special_assignments WHERE id = ?', [numericId]);
+        if (result.affectedRows > 0) {
+            res.json({ success: true });
+        } else {
+            res.status(404).send('Special assignment entry not found.');
+        }
+    } catch (error) {
+        console.error('Error deleting special assignment:', error);
+        res.status(500).send('Error deleting special assignment.');
+    }
+});
+// --- END SPECIAL ASSIGNMENTS API ---
+
 
 // --- USER MANAGEMENT API (Admin Only) ---
 app.post('/api/users', requireLogin('admin'), async (req, res) => {
@@ -290,7 +393,7 @@ app.post('/api/users', requireLogin('admin'), async (req, res) => {
 
     try {
         console.log(`Hashing password for user: ${username}`);
-        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS); // Use SALT_ROUNDS from config
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
         console.log(`Password hashed successfully for user: ${username}`);
 
         await pool.query( 'INSERT INTO users (username, password, role) VALUES (?, ?, ?)', [username, hashedPassword, role] );
