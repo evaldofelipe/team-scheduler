@@ -1,4 +1,4 @@
-// public/admin.js (Corrected)
+// public/admin.js (Corrected with updated addSpecialAssignment)
 
 // --- DOM Elements ---
 const monthYearHeader = document.getElementById('monthYearHeader');
@@ -151,7 +151,7 @@ function populateMemberDropdown() { /* ... no change ... */
 }
 
 
-function renderUnavailableList() { /* ... no change (already filters by month) ... */
+function renderUnavailableList() { /* ... (no change - already filters by month) ... */
     unavailableList.innerHTML = ''; const currentYear = currentDate.getFullYear(); const currentMonth = currentDate.getMonth();
     const filteredEntries = unavailableEntries.filter(entry => { const entryDate = new Date(entry.date + 'T00:00:00Z'); return entryDate.getUTCFullYear() === currentYear && entryDate.getUTCMonth() === currentMonth; });
     filteredEntries.sort((a, b) => a.date.localeCompare(b.date) || a.member.localeCompare(b.member));
@@ -159,7 +159,7 @@ function renderUnavailableList() { /* ... no change (already filters by month) .
     else { filteredEntries.forEach((entry) => { const li = document.createElement('li'); const displayDate = new Date(entry.date + 'T00:00:00Z').toLocaleDateString(); li.textContent = `${displayDate} - ${entry.member}`; const removeBtn = document.createElement('button'); removeBtn.textContent = 'x'; removeBtn.title = `Remove unavailability for ${entry.member} on ${displayDate}`; removeBtn.onclick = () => removeUnavailability(entry.id); li.appendChild(removeBtn); unavailableList.appendChild(li); }); }
     if (unavailableList.lastChild) unavailableList.lastChild.style.borderBottom = 'none';
 }
-function renderOverrideDaysList() { /* ... no change (already filters by month) ... */
+function renderOverrideDaysList() { /* ... (no change - already filters by month) ... */
     overrideDaysList.innerHTML = ''; const currentYear = currentDate.getFullYear(); const currentMonth = currentDate.getMonth();
     const filteredOverrideDays = overrideDays.filter(dateStr => { const overrideDate = new Date(dateStr + 'T00:00:00Z'); return overrideDate.getUTCFullYear() === currentYear && overrideDate.getUTCMonth() === currentMonth; });
     filteredOverrideDays.sort();
@@ -194,199 +194,265 @@ function renderCalendar(year, month, membersToAssign = teamMembers) { /* ... no 
 
 // --- Action Functions (Call APIs & Update UI) ---
 
-// <<< UPDATED apiCall Helper with Better Error Handling >>>
+// UPDATED apiCall Helper with Better Error Handling
 async function apiCall(url, options, successCallback) {
     console.log(`API Call: ${options.method || 'GET'} ${url}`);
     try {
         const response = await fetch(url, options);
 
-        // Handle Auth errors first
         if (response.status === 401 || response.status === 403) {
             console.warn(`Unauthorized/Forbidden (${response.status}) access to ${url}. Redirecting.`);
             window.location.href = '/login.html?message=Session expired or insufficient privileges.';
-            return; // Stop processing
+            return;
         }
 
-        // Check for successful responses (including expected 404 on DELETE)
-        // NOTE: 201 Created is also considered 'ok' by response.ok
         if (response.ok || (options.method === 'DELETE' && response.status === 404)) {
             console.log(`API call success for ${url} (Status: ${response.status})`);
-            // Attempt to refetch ALL data on success/acceptable failure (like 404 on delete)
-            // If fetchData fails, an alert would have been shown inside it.
             if (await fetchData()) {
-                successCallback(); // Call specific render functions only if fetch succeeded
+                successCallback();
             }
-            return; // Success path finished
+            return;
         }
 
-        // --- Handle unsuccessful responses (not OK, not 401/403, not 404 on DELETE) ---
         console.error(`API Error for ${url}. Status: ${response.status} ${response.statusText}`);
-        let errorMsg = `Operation failed (${response.status}).`; // Default message
+        let errorMsg = `Operation failed (${response.status}).`;
 
-        // Try to get more specific error text from the response body
         try {
             const contentType = response.headers.get("content-type");
             if (contentType && contentType.includes("application/json")) {
-                // Try to parse as JSON
                 const errorJson = await response.json();
-                errorMsg = errorJson.message || errorJson.error || errorMsg; // Look for common error fields
+                errorMsg = errorJson.message || errorJson.error || errorMsg;
             } else {
-                // Otherwise, try to read as text
                 const errorText = await response.text();
-                // Use text response only if it's not empty and seems reasonable length
                 if (errorText && errorText.length < 200) {
                      errorMsg = errorText;
                 } else if (errorText){
-                     errorMsg += ` Server sent non-JSON error.`; // Indicate if text was too long/unusable
+                     errorMsg += ` Server sent non-JSON error.`;
                 } else {
-                     errorMsg += ` ${response.statusText || 'Server error'}`; // Fallback if text is empty
+                     errorMsg += ` ${response.statusText || 'Server error'}`;
                 }
             }
         } catch (e) {
-            // This catch block handles errors during the parsing of the error response body
             console.error("Error parsing error response body:", e);
             errorMsg += ` Could not parse error details from server.`;
         }
+        alert(errorMsg);
 
-        alert(errorMsg); // Display the best error message we could get
-
-    } catch (error) { // Catch network errors or errors within the outer try block
+    } catch (error) {
         console.error(`Network or execution error for ${url}:`, error);
         alert("A network error occurred. Please check the console or try again later.");
     }
 }
 
 async function addMember() {
-    console.log("Add Member button clicked"); // Debug
+    console.log("Add Member button clicked");
     const name = memberNameInput.value.trim(); if (!name) { alert('Please enter a member name.'); return; }
-    memberNameInput.value = ''; // Clear input immediately
-    memberNameInput.focus();
+    memberNameInput.value = ''; memberNameInput.focus();
     await apiCall('/api/team-members', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    }, () => {
-        renderTeamList(); // Re-renders list + calls populateMemberDropdown
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    });
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
+    }, () => { renderTeamList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function removeMember(nameToRemove) {
-    console.log("Remove Member button clicked for:", nameToRemove); // Debug
-    if (!nameToRemove || !confirm(`Remove ${nameToRemove}? This also removes their unavailability & special assignments.`)) return; // Updated confirmation
-    await apiCall(`/api/team-members/${encodeURIComponent(nameToRemove)}`, {
-        method: 'DELETE'
-    }, () => {
-        renderTeamList();
-        renderUnavailableList();
-        renderSpecialAssignmentsList(); // Also re-render special list in case they were removed
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    });
+    console.log("Remove Member button clicked for:", nameToRemove);
+    if (!nameToRemove || !confirm(`Remove ${nameToRemove}? This also removes their unavailability & special assignments.`)) return;
+    await apiCall(`/api/team-members/${encodeURIComponent(nameToRemove)}`, { method: 'DELETE'
+    }, () => { renderTeamList(); renderUnavailableList(); renderSpecialAssignmentsList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function addPosition() {
-    console.log("Add Position button clicked"); // Debug
+    console.log("Add Position button clicked");
     const name = positionNameInput.value.trim(); if (!name) { alert('Please enter a position name.'); return; }
-    positionNameInput.value = '';
-    positionNameInput.focus();
+    positionNameInput.value = ''; positionNameInput.focus();
     await apiCall('/api/positions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name })
-    }, () => {
-        renderPositionList();
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    });
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
+    }, () => { renderPositionList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function removePosition(positionId) {
-    console.log("Remove Position button clicked for ID:", positionId); // Debug
+    console.log("Remove Position button clicked for ID:", positionId);
     const positionToRemove = positions.find(p => p.id === positionId);
-    if (!positionToRemove || !confirm(`Remove Position: "${positionToRemove.name}"? This also removes any special assignments with this name.`)) return; // Updated confirmation
-    await apiCall(`/api/positions/${positionId}`, {
-        method: 'DELETE'
-    }, () => {
-        renderPositionList();
-        renderSpecialAssignmentsList(); // Re-render special list in case positions were removed
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    });
+    if (!positionToRemove || !confirm(`Remove Position: "${positionToRemove.name}"? This also removes any special assignments with this name.`)) return;
+    await apiCall(`/api/positions/${positionId}`, { method: 'DELETE'
+    }, () => { renderPositionList(); renderSpecialAssignmentsList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function addUnavailability() {
-    console.log("Add Unavailability button clicked"); // Debug
-    const dateValue = unavailabilityDateInput.value;
-    const memberName = unavailabilityMemberSelect.value;
+    console.log("Add Unavailability button clicked");
+    const dateValue = unavailabilityDateInput.value; const memberName = unavailabilityMemberSelect.value;
     if (!dateValue || !memberName) { alert("Please select both a date and a member."); return; }
     await apiCall('/api/unavailability', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ member: memberName, date: dateValue })
-    }, () => {
-        renderUnavailableList();
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    });
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ member: memberName, date: dateValue })
+    }, () => { renderUnavailableList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function removeUnavailability(idToRemove) {
-     console.log("Remove Unavailability button clicked for ID:", idToRemove); // Debug
+     console.log("Remove Unavailability button clicked for ID:", idToRemove);
      if (!idToRemove || !confirm(`Remove this unavailability entry?`)) return;
-     await apiCall(`/api/unavailability/${idToRemove}`, {
-        method: 'DELETE'
-     }, () => {
-        renderUnavailableList();
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-     });
+     await apiCall(`/api/unavailability/${idToRemove}`, { method: 'DELETE'
+     }, () => { renderUnavailableList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function addOverrideDay() {
-    console.log("Add Override Day button clicked"); // Debug
-    const dateValue = overrideDateInput.value;
-    if (!dateValue) { alert("Please select a date to set as an override."); return; }
+    console.log("Add Override Day button clicked");
+    const dateValue = overrideDateInput.value; if (!dateValue) { alert("Please select a date to set as an override."); return; }
     overrideDateInput.value = '';
     await apiCall('/api/overrides', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date: dateValue })
-    }, () => {
-        renderOverrideDaysList();
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    });
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: dateValue })
+    }, () => { renderOverrideDaysList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
 async function removeOverrideDay(dateStr) {
-     console.log("Remove Override Day button clicked for Date:", dateStr); // Debug
+     console.log("Remove Override Day button clicked for Date:", dateStr);
      const displayDate = new Date(dateStr + 'T00:00:00Z').toLocaleDateString();
      if (!dateStr || !confirm(`Remove override for ${displayDate}? Assignments will revert to default logic for this day.`)) return;
-     await apiCall(`/api/overrides/${dateStr}`, {
-        method: 'DELETE'
-     }, () => {
-        renderOverrideDaysList();
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-     });
+     await apiCall(`/api/overrides/${dateStr}`, { method: 'DELETE'
+     }, () => { renderOverrideDaysList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); });
 }
 
-async function logout() { /* ... no change ... */ }
+async function logout() { /* ... no change ... */
+    try { const response = await fetch('/logout', { method: 'POST' }); if (response.ok) { window.location.href = '/login.html'; } else { const result = await response.json(); alert(`Logout failed: ${result.message || 'Unknown error'}`); } } catch (error) { console.error('Logout error:', error); alert('Logout request failed. Check console.'); }
+}
 
-async function addUser() { /* ... no change ... */ }
+async function addUser() { /* ... no change ... */
+    const username = newUsernameInput.value.trim(); const password = newPasswordInput.value; const role = newUserRoleSelect.value;
+    userFeedbackMessage.textContent = ''; userFeedbackMessage.className = 'feedback-message';
+    if (!username || !password || !role) { userFeedbackMessage.textContent = 'Please fill in all user fields.'; userFeedbackMessage.classList.add('error'); return; }
+    if (password.length < 6) { userFeedbackMessage.textContent = 'Password must be at least 6 characters.'; userFeedbackMessage.classList.add('error'); return; }
+    console.log(`Attempting to add user: ${username}, Role: ${role}`);
+    addUserBtn.disabled = true; addUserBtn.textContent = 'Adding...';
+    try { const response = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password, role }) }); const result = await response.json();
+        if (response.ok && result.success) { userFeedbackMessage.textContent = result.message || `User '${username}' added successfully!`; userFeedbackMessage.classList.add('success'); newUsernameInput.value = ''; newPasswordInput.value = ''; newUserRoleSelect.value = 'user'; console.log(`Successfully added user: ${username}`); setTimeout(() => { if (userFeedbackMessage.classList.contains('success')) { userFeedbackMessage.textContent = ''; userFeedbackMessage.className = 'feedback-message';} }, 5000); }
+        else { userFeedbackMessage.textContent = result.message || `Failed to add user (${response.status})`; userFeedbackMessage.classList.add('error'); console.error(`Failed to add user: ${response.status}`, result); }
+    } catch (error) { console.error("Error during add user request:", error); userFeedbackMessage.textContent = 'A network error occurred. Please try again.'; userFeedbackMessage.classList.add('error'); }
+    finally { addUserBtn.disabled = false; addUserBtn.textContent = 'Add User'; }
+}
 
-async function addSpecialAssignment() { /* ... no change ... */ }
+// <<< UPDATED: addSpecialAssignment with direct fetch and improved debugging >>>
+async function addSpecialAssignment() {
+    console.log("[DEBUG] Add Special Assignment button clicked"); // <<< DEBUG LOG
 
-async function removeSpecialAssignment(assignmentId) { /* ... no change ... */ }
+    if (!specialDayDateInput || !specialDayPositionInput || !specialDayMemberSelect || !addSpecialAssignmentBtn || !specialAssignmentFeedback) {
+        console.error("[DEBUG] One or more special assignment DOM elements not found!");
+        alert("Internal Error: Cannot find special assignment form elements.");
+        return;
+    }
+
+    const date = specialDayDateInput.value;
+    const position = specialDayPositionInput.value.trim();
+    const member = specialDayMemberSelect.value;
+    console.log("[DEBUG] Special Assignment Data:", { date, position, member }); // <<< DEBUG LOG
+
+    specialAssignmentFeedback.textContent = '';
+    specialAssignmentFeedback.className = 'feedback-message'; // Reset class
+
+    if (!date || !position || !member) {
+        console.log("[DEBUG] Validation failed: Missing fields"); // <<< DEBUG LOG
+        specialAssignmentFeedback.textContent = 'Please fill in date, position, and member.';
+        specialAssignmentFeedback.classList.add('error');
+        return;
+    }
+
+    addSpecialAssignmentBtn.disabled = true;
+    addSpecialAssignmentBtn.textContent = 'Adding...';
+
+    console.log("[DEBUG] Sending POST request to /api/special-assignments"); // <<< DEBUG LOG
+    try {
+        const response = await fetch('/api/special-assignments', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date, position, member })
+        });
+        console.log("[DEBUG] Response status:", response.status); // <<< DEBUG LOG
+
+        if (response.status === 401 || response.status === 403) {
+            console.warn(`[DEBUG] Unauthorized/Forbidden (${response.status}) adding special assignment. Redirecting.`);
+            window.location.href = '/login.html?message=Session expired or insufficient privileges.';
+            return;
+        }
+
+        let result = {};
+        let responseOk = response.ok;
+        let responseTextForDebug = '';
+
+        try {
+            responseTextForDebug = await response.text();
+            if (responseOk || response.status === 409) {
+                 result = JSON.parse(responseTextForDebug);
+                 console.log("[DEBUG] Parsed response JSON:", result);
+            } else {
+                 result = { message: responseTextForDebug || `Server returned status ${response.status}` };
+                 console.log("[DEBUG] Non-OK response, using raw text:", responseTextForDebug);
+            }
+        } catch (e) {
+            console.error("[DEBUG] Failed to parse JSON response for addSpecialAssignment. Raw text:", responseTextForDebug, e);
+            responseOk = false;
+            result = { message: `Server returned non-JSON response: ${responseTextForDebug.substring(0, 100)}` };
+        }
+
+        if (responseOk && result.success) {
+            console.log("[DEBUG] Add special assignment successful.");
+            specialAssignmentFeedback.textContent = result.message || `Special assignment added successfully!`;
+            specialAssignmentFeedback.classList.add('success');
+            specialDayDateInput.value = '';
+            specialDayPositionInput.value = '';
+            specialDayMemberSelect.value = '';
+
+            if (await fetchData()) {
+                renderSpecialAssignmentsList();
+                renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+            }
+             setTimeout(() => {
+                 if (specialAssignmentFeedback.classList.contains('success')) {
+                    specialAssignmentFeedback.textContent = '';
+                    specialAssignmentFeedback.className = 'feedback-message';
+                 }
+             }, 5000);
+
+        } else {
+             console.error(`[DEBUG] Failed add special assignment response. Status: ${response.status}`, result);
+             specialAssignmentFeedback.textContent = result.message || `Failed to add assignment (${response.status})`;
+             specialAssignmentFeedback.classList.add('error');
+        }
+
+    } catch (error) {
+        console.error("[DEBUG] Network error during add special assignment request:", error);
+        specialAssignmentFeedback.textContent = 'A network error occurred. Please try again.';
+        specialAssignmentFeedback.classList.add('error');
+    } finally {
+        console.log("[DEBUG] Re-enabling add special assignment button.");
+        addSpecialAssignmentBtn.disabled = false;
+        addSpecialAssignmentBtn.textContent = 'Add Special Position';
+    }
+}
+
+
+async function removeSpecialAssignment(assignmentId) { /* ... no change ... */
+    console.log("Remove Special Assignment button clicked for ID:", assignmentId); // Debug
+    if (!assignmentId || !confirm(`Remove this special assignment (ID: ${assignmentId})?`)) return;
+    try { const response = await fetch(`/api/special-assignments/${assignmentId}`, { method: 'DELETE' });
+         if (response.status === 401 || response.status === 403) { window.location.href = '/login.html?message=Session expired or insufficient privileges.'; return; }
+         if (response.ok || response.status === 404) { if (await fetchData()) { renderSpecialAssignmentsList(); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); } }
+         else { let errorMsg = `Failed to remove special assignment (${response.status})`; try { const result = await response.json(); errorMsg = result.message || errorMsg; } catch(e){} alert(errorMsg); }
+    } catch (error) { console.error("Error removing special assignment:", error); alert("Network error removing special assignment."); }
+}
 
 
 // --- Event Listeners ---
 // Ensure elements exist before adding listeners
 if (prevMonthBtn) prevMonthBtn.addEventListener('click', async () => {
-    console.log("Prev Month clicked"); // Debug
+    console.log("Prev Month clicked");
     currentDate.setMonth(currentDate.getMonth() - 1);
     if (await fetchData()) { renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); }
 });
 if (nextMonthBtn) nextMonthBtn.addEventListener('click', async () => {
-    console.log("Next Month clicked"); // Debug
+    console.log("Next Month clicked");
     currentDate.setMonth(currentDate.getMonth() + 1);
     if (await fetchData()) { renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); }
 });
-if (randomizeBtn) randomizeBtn.addEventListener('click', () => { /* ... no change ... */ });
+if (randomizeBtn) randomizeBtn.addEventListener('click', () => { /* ... no change ... */
+    if (teamMembers.length > 0) { let shuffledMembers = [...teamMembers]; shuffleArray(shuffledMembers); renderCalendar(currentDate.getFullYear(), currentDate.getMonth(), shuffledMembers); alert("Assignments randomized for current view. Add/remove members or navigate months to reset to default order."); } else { alert("Add team members before randomizing."); }
+});
 if (logoutBtn) logoutBtn.addEventListener('click', logout);
 // Member listeners
 if (addMemberBtn) addMemberBtn.addEventListener('click', addMember);
@@ -417,7 +483,7 @@ else { console.warn("Theme toggle button not found in the DOM."); }
 async function initializeAdminView() {
     console.log("Initializing Admin View...");
     initializeTheme();
-    if (await fetchData()) { // Initial fetch uses current month
+    if (await fetchData()) {
         console.log("Data fetch successful. Rendering components.");
         renderTeamList();
         renderPositionList();
