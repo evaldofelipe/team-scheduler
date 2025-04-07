@@ -52,7 +52,43 @@ app.use(session({
     }
 }));
 
-// ... (rest of server.js remains the same: requireLogin, static files, API routes, HTML serving, error handling, server start) ...
+// <<< --- ADD requireLogin DEFINITION BACK HERE --- >>>
+const requireLogin = (requiredRole = 'user') => {
+    return (req, res, next) => {
+        if (!req.session.user) {
+            // If not logged in
+            if (req.headers.accept && req.headers.accept.includes('application/json')) {
+                 // Respond with JSON for API requests
+                 return res.status(401).json({ success: false, message: 'Unauthorized: Please log in.' });
+            } else {
+                 // Redirect browser requests to login page
+                 return res.status(401).redirect('/login.html?message=Please log in');
+            }
+        }
+        // User is logged in, now check role if needed
+        // Admins automatically pass any role check
+        if (req.session.user.role === 'admin') {
+            return next();
+        }
+        // If admin role is specifically required, but user is not admin
+        if (requiredRole === 'admin' && req.session.user.role !== 'admin') {
+             if (req.headers.accept && req.headers.accept.includes('application/json')) {
+                 // Respond with JSON for API requests
+                 return res.status(403).json({ success: false, message: 'Forbidden: Insufficient privileges.' });
+            } else {
+                // Send forbidden message for browser requests
+                return res.status(403).send('Forbidden: Insufficient privileges.');
+            }
+        }
+        // If user role is sufficient (covers 'user' requirement when role is 'user')
+        next(); // Proceed to the route handler
+    };
+};
+// <<< --- END OF requireLogin DEFINITION --- >>>
+
+
+// --- Static Files ---
+app.use(express.static(path.join(__dirname, 'public')));
 
 // --- API Routes ---
 
@@ -98,7 +134,7 @@ app.post('/logout', (req, res) => {
 
 
 // --- TEAM MEMBERS API ---
-app.get('/api/team-members', requireLogin(), async (req, res) => {
+app.get('/api/team-members', requireLogin(), async (req, res) => { // Now requireLogin is defined
     try {
         const [members] = await pool.query('SELECT name FROM team_members ORDER BY name');
         res.json(members.map(m => m.name));
