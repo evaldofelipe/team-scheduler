@@ -12,7 +12,6 @@
     <!-- Team Management Section -->
     <div id="team-management">
         <h3>Team Members</h3>
-        <!-- ... (Team Member section content) ... -->
         <div id="team-input-area">
             <input type="text" id="memberNameInput" placeholder="Enter member name">
             <button id="addMemberBtn">Add</button>
@@ -22,7 +21,6 @@
         <!-- Position Management Section -->
         <div id="position-management-section">
              <h4>Manage Positions</h4>
-             <!-- ... (Position section content) ... -->
              <div id="position-input-area">
                  <input type="text" id="positionNameInput" placeholder="Enter position name">
                  <button id="addPositionBtn">Add Position</button>
@@ -33,18 +31,9 @@
         <!-- Unavailability Section -->
         <div id="unavailability-section">
             <h4>Member Unavailability (Current Month)</h4>
-             <!-- ... (Unavailability section content) ... -->
              <div id="unavailability-input-area">
-                <div>
-                    <label for="unavailabilityDate">Date:</label>
-                    <input type="date" id="unavailabilityDate">
-                </div>
-                <div>
-                    <label for="unavailabilityMember">Member:</label>
-                    <select id="unavailabilityMember">
-                        <option value="">-- Select Member --</option>
-                    </select>
-                </div>
+                <div> <label for="unavailabilityDate">Date:</label> <input type="date" id="unavailabilityDate"> </div>
+                <div> <label for="unavailabilityMember">Member:</label> <select id="unavailabilityMember"> <option value="">-- Select Member --</option> </select> </div>
                 <button id="addUnavailabilityBtn">Mark Unavailable</button>
             </div>
             <ul id="unavailable-list"></ul>
@@ -53,7 +42,6 @@
         <!-- Override Assignment Days Section -->
         <div id="override-days-section">
              <h4>Override Assignment Days (Current Month)</h4>
-             <!-- ... (Override Days section content) ... -->
               <div id="override-day-input-area">
                  <input type="date" id="overrideDateInput" title="Select date to force assignments">
                  <button id="addOverrideDayBtn">Add Override Day</button>
@@ -61,49 +49,59 @@
              <ul id="override-days-list"></ul>
          </div>
 
-        <!-- <<< NEW: User Management Section >>> -->
+         <!-- <<< NEW: Special Day Assignments Section >>> -->
+         <div id="special-assignments-section">
+             <h4>Special Day Positions (Current Month)</h4>
+             <div id="special-assignments-input-area">
+                 <div class="form-group">
+                     <label for="specialDayDate">Date:</label>
+                     <input type="date" id="specialDayDate" required>
+                 </div>
+                 <div class="form-group">
+                     <label for="specialDayPositionName">Position Name:</label>
+                     <input type="text" id="specialDayPositionName" placeholder="Extra position name" required>
+                 </div>
+                 <div class="form-group">
+                     <label for="specialDayMember">Assign Member:</label>
+                     <select id="specialDayMember" required>
+                         <option value="">-- Select Member --</option>
+                         <!-- Populated by JS -->
+                     </select>
+                 </div>
+                 <button id="addSpecialAssignmentBtn">Add Special Position</button>
+             </div>
+             <div id="special-assignment-feedback" class="feedback-message"></div>
+             <ul id="special-assignments-list">
+                 <!-- Filtered special assignments listed here -->
+             </ul>
+         </div>
+         <!-- <<< END Special Day Assignments Section >>> -->
+
+        <!-- User Management Section -->
         <div id="user-management-section">
             <h4>Manage Users</h4>
             <div id="user-input-area">
-                <div class="form-group">
-                    <label for="newUsername">Username:</label>
-                    <input type="text" id="newUsername" placeholder="New username" required>
-                </div>
-                <div class="form-group">
-                    <label for="newPassword">Password:</label>
-                    <input type="password" id="newPassword" placeholder="New password" required>
-                </div>
-                <div class="form-group">
-                    <label for="newUserRole">Role:</label>
-                    <select id="newUserRole">
-                        <option value="user" selected>User</option>
-                        <option value="admin">Admin</option>
-                    </select>
-                </div>
+                <div class="form-group"> <label for="newUsername">Username:</label> <input type="text" id="newUsername" placeholder="New username" required> </div>
+                <div class="form-group"> <label for="newPassword">Password:</label> <input type="password" id="newPassword" placeholder="New password" required> </div>
+                <div class="form-group"> <label for="newUserRole">Role:</label> <select id="newUserRole"> <option value="user" selected>User</option> <option value="admin">Admin</option> </select> </div>
                 <button id="addUserBtn">Add User</button>
             </div>
-            <div id="user-feedback-message" class="feedback-message"></div> <!-- For success/error messages -->
+            <div id="user-feedback-message" class="feedback-message"></div>
         </div>
-        <!-- <<< END User Management Section >>> -->
 
     </div>
 
-    <!-- Calendar Section (No changes here) -->
+    <!-- Calendar Section -->
     <div id="calendar-view">
          <div id="calendar-header">
-             <div id="calendar-nav-buttons">
-                 <button id="prevMonthBtn">< Prev</button>
-                 <button id="nextMonthBtn">Next ></button>
-             </div>
+             <div id="calendar-nav-buttons"> <button id="prevMonthBtn">< Prev</button> <button id="nextMonthBtn">Next ></button> </div>
             <h2 id="monthYearHeader">Month Year</h2>
             <button id="randomizeBtn">Randomize Assignments</button>
             <button id="logoutBtn">Logout</button>
             <button id="theme-toggle">🌓 Toggle Theme</button>
         </div>
         <table id="calendar">
-            <thead>
-                <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
-            </thead>
+            <thead> <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr> </thead>
             <tbody id="calendar-body"></tbody>
         </table>
     </div>

@@ -116,7 +116,7 @@ body {
     transition: border-color 0.3s ease;
 }
 
-#team-management h3, #unavailability-section h4, #position-management-section h4, #override-days-section h4, #user-management-section h4 { /* Added user management */
+#team-management h3, #unavailability-section h4, #position-management-section h4, #override-days-section h4, #special-assignments-section h4, #user-management-section h4 {
     margin-top: 0;
     color: var(--header-color);
     padding-bottom: 10px;
@@ -130,7 +130,7 @@ body {
     transition: border-color 0.3s ease;
 }
 
-#unavailability-section h4, #position-management-section h4, #override-days-section h4, #user-management-section h4 { /* Added user management */
+#unavailability-section h4, #position-management-section h4, #override-days-section h4, #special-assignments-section h4, #user-management-section h4 {
     font-size: 1.1em;
 }
 
@@ -146,7 +146,7 @@ body {
     margin-right: 8px;
 }
 
-#team-list, #unavailable-list, #position-list, #override-days-list {
+#team-list, #unavailable-list, #position-list, #override-days-list, #special-assignments-list { /* Added special list */
     list-style: none;
     padding: 0;
     margin: 0;
@@ -159,9 +159,9 @@ body {
 }
 
 #team-list { flex-grow: 1; min-height: 150px; }
-#unavailable-list, #position-list, #override-days-list { max-height: 150px; min-height: 50px; margin-top: 10px; font-size: 0.9em; }
+#unavailable-list, #position-list, #override-days-list, #special-assignments-list { max-height: 150px; min-height: 50px; margin-top: 10px; font-size: 0.9em; } /* Added special list */
 
-#team-list li, #unavailable-list li, #position-list li, #override-days-list li {
+#team-list li, #unavailable-list li, #position-list li, #override-days-list li, #special-assignments-list li { /* Added special list item */
     padding: 8px 12px;
     border-bottom: 1px solid var(--list-item-border); /* Use list item border variable */
     font-size: 0.95em;
@@ -170,17 +170,21 @@ body {
     align-items: center;
     color: var(--text-primary); /* Ensure text color follows theme */
     transition: border-color 0.3s ease, color 0.3s ease;
+    gap: 10px; /* Add gap between text and button */
 }
-
+/* Specific list item adjustments */
 #unavailable-list li { border-bottom-style: dashed; font-size: 0.9em; padding: 5px 8px; }
 #override-days-list li { font-size: 0.9em; padding: 5px 8px;}
+#special-assignments-list li { padding: 6px 12px; font-size: 0.95em; }
+#special-assignments-list li span { flex-grow: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#special-assignments-list li.placeholder { justify-content: center; color: var(--text-secondary); font-style: italic; border-bottom: none; }
 
-#team-list li:last-child, #unavailable-list li:last-child, #position-list li:last-child, #override-days-list li:last-child {
+#team-list li:last-child, #unavailable-list li:last-child, #position-list li:last-child, #override-days-list li:last-child, #special-assignments-list li:last-child { /* Added special list */
     border-bottom: none;
 }
 
 /* Delete buttons in lists */
-#team-list button, #unavailable-list button, #position-list button, #override-days-list button {
+#team-list button, #unavailable-list button, #position-list button, #override-days-list button, #special-assignments-list button { /* Added special list button */
     background: none;
     border: none;
     color: var(--delete-icon-color);
@@ -190,19 +194,25 @@ body {
     line-height: 1;
     border-radius: 3px;
     transition: background-color 0.2s ease, color 0.2s ease;
+    flex-shrink: 0; /* Prevent button from shrinking */
 }
-#unavailable-list button, #override-days-list button { font-size: 1em; padding: 0 3px; }
+/* Smaller delete buttons */
+#unavailable-list button, #override-days-list button, #special-assignments-list button { font-size: 1em; padding: 0 3px; } /* Added special list button */
 
-#team-list button:hover, #unavailable-list button:hover, #position-list button:hover, #override-days-list button:hover {
+#team-list button:hover, #unavailable-list button:hover, #position-list button:hover, #override-days-list button:hover, #special-assignments-list button:hover { /* Added special list button */
     color: var(--delete-icon-hover-color);
     background-color: var(--delete-icon-hover-bg);
 }
 
 /* Sidebar Sections Separators */
-#unavailability-section, #position-management-section, #override-days-section, #user-management-section { /* Added user management */
+#unavailability-section,
+#position-management-section,
+#override-days-section,
+#special-assignments-section, /* Added */
+#user-management-section {
     margin-top: 25px;
     padding-top: 15px;
-    border-top: 2px solid var(--border-color); /* Use border-color */
+    border-top: 2px solid var(--border-color);
     transition: border-color 0.3s ease;
 }
 
@@ -211,9 +221,8 @@ body {
 #unavailability-input-area > div { flex: 1; min-width: 120px; }
 
 #unavailability-input-area input[type="date"], #unavailability-input-area select {
-    /* Styling handled by general input rules below */
     width: 100%;
-    padding: 6px 8px; /* Slightly smaller padding */
+    padding: 6px 8px;
     font-size: 0.95em;
 }
 
@@ -222,247 +231,81 @@ body {
     flex-grow: 0;
 }
 
-/* --- User Management Section Styles --- */
-#user-management-section {
-    /* Spacing/border handled by common rule above */
-}
+/* --- Special Assignments Section Styles --- */
+#special-assignments-section { /* Spacing/border handled by common rule above */ }
 
-#user-input-area {
+#special-assignments-input-area {
     display: flex;
     flex-direction: column; /* Stack fields vertically */
     gap: 10px;
     margin-bottom: 15px;
 }
 
-#user-input-area .form-group {
-     margin-bottom: 5px; /* Reduce gap between label/input */
-}
+#special-assignments-input-area .form-group { margin-bottom: 5px; }
+#special-assignments-input-area label { font-size: 0.9em; color: var(--text-secondary); margin-bottom: 3px; display: block; transition: color 0.3s ease; }
 
-#user-input-area label {
-    font-size: 0.9em;
-    color: var(--text-secondary);
-    margin-bottom: 3px;
-    display: block;
-    transition: color 0.3s ease;
-}
+#addSpecialAssignmentBtn { margin-top: 5px; align-self: flex-start; }
 
-/* Inputs already styled globally */
+/* --- User Management Section Styles --- */
+#user-management-section { /* Spacing/border handled by common rule above */ }
 
-#addUserBtn {
-    margin-top: 5px; /* Space above button */
-    align-self: flex-start; /* Align button left */
-    /* Styling inherited from primary button style */
-}
+#user-input-area { display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px; }
+#user-input-area .form-group { margin-bottom: 5px; }
+#user-input-area label { font-size: 0.9em; color: var(--text-secondary); margin-bottom: 3px; display: block; transition: color 0.3s ease; }
+#addUserBtn { margin-top: 5px; align-self: flex-start; }
 
-.feedback-message {
-    margin-top: 10px;
-    font-size: 0.9em;
-    min-height: 1em; /* Prevent layout shift */
-    transition: color 0.3s ease;
-}
-.feedback-message.success { color: var(--button-primary-bg); } /* Use appropriate variable */
-.feedback-message.error { color: var(--button-danger-bg); } /* Use appropriate variable */
+.feedback-message { margin-top: 10px; font-size: 0.9em; min-height: 1em; transition: color 0.3s ease; }
+.feedback-message.success { color: var(--button-primary-bg); }
+.feedback-message.error { color: var(--button-danger-bg); }
 
 
 /* --- Calendar View --- */
 #calendar-view { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
 
-#calendar-header {
-    display: flex;
-    justify-content: space-between; /* Adjust as needed with new button */
-    align-items: center;
-    margin-bottom: 20px;
-    flex-wrap: wrap;
-    gap: 10px;
-    padding: 0 5px;
-}
-
-#calendar-nav-buttons { display: flex; gap: 5px; order: 1; } /* Keep first */
-
-#calendar-header h2 {
-    margin: 0;
-    font-size: 1.6em;
-    color: var(--header-color);
-    font-weight: 600;
-    order: 2; /* Month/Year second */
-    text-align: center;
-    flex-grow: 1;
-    min-width: 150px;
-    transition: color 0.3s ease;
-}
-
-/* Buttons in Calendar Header (General Styling via 'button' selector below) */
+#calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px; padding: 0 5px; }
+#calendar-nav-buttons { display: flex; gap: 5px; order: 1; }
+#calendar-header h2 { margin: 0; font-size: 1.6em; color: var(--header-color); font-weight: 600; order: 2; text-align: center; flex-grow: 1; min-width: 150px; transition: color 0.3s ease; }
 #randomizeBtn { order: 3; background-color: var(--button-warn-bg); border-color: var(--button-warn-border); color: var(--button-warn-text); }
 #randomizeBtn:hover { background-color: var(--button-warn-hover-bg); }
-
-#logoutBtn { order: 4; background-color: var(--button-danger-bg); border-color: var(--button-danger-border); color: var(--button-danger-text); margin-left: auto; /* Push to right side before theme toggle */ }
+#logoutBtn { order: 4; background-color: var(--button-danger-bg); border-color: var(--button-danger-border); color: var(--button-danger-text); margin-left: auto; }
 #logoutBtn:hover { background-color: var(--button-danger-hover-bg); }
-
-/* Default nav buttons */
 #calendar-nav-buttons button { background-color: var(--button-default-bg); border-color: var(--button-default-border); color: var(--text-primary); }
 #calendar-nav-buttons button:hover { background-color: var(--button-hover-bg); }
-
-
-/* --- Theme Toggle Button (POSITIONING IN HEADER) --- */
-#theme-toggle {
-    order: 5; /* Place it last in the header flex flow */
-    margin-left: 10px; /* Space from logout button */
-    background-color: var(--button-default-bg); /* Match other default buttons */
-    border-color: var(--button-default-border);
-    color: var(--text-primary);
-    padding: 7px 12px; /* Match other header buttons */
-    border-radius: 5px;
-    cursor: pointer;
-    /* Removed: position, top, right, z-index */
-    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-#theme-toggle:hover {
-    background-color: var(--button-hover-bg);
-}
+#theme-toggle { order: 5; margin-left: 10px; background-color: var(--button-default-bg); border-color: var(--button-default-border); color: var(--text-primary); padding: 7px 12px; border-radius: 5px; cursor: pointer; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; }
+#theme-toggle:hover { background-color: var(--button-hover-bg); }
 
 /* --- Calendar Table --- */
-#calendar {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-    flex-grow: 1;
-}
-
-#calendar th {
-    border: 1px solid var(--border-color);
-    padding: 10px 5px;
-    text-align: center;
-    background-color: var(--calendar-header-bg);
-    font-weight: 600;
-    font-size: 0.9em;
-    color: var(--text-primary); /* Use themed text color */
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-}
-
-#calendar td {
-    border: 1px solid var(--border-color);
-    padding: 6px 8px;
-    vertical-align: top;
-    height: 110px;
-    background-color: var(--calendar-cell-bg);
-    text-align: left;
-    position: relative;
-    font-size: 0.9em;
-    overflow: hidden;
-    transition: background-color 0.3s ease, border-color 0.3s ease;
-}
-
-#calendar td.other-month {
-    color: var(--other-month-text);
-    background-color: var(--other-month-bg);
-}
-
+#calendar { width: 100%; border-collapse: collapse; table-layout: fixed; flex-grow: 1; }
+#calendar th { border: 1px solid var(--border-color); padding: 10px 5px; text-align: center; background-color: var(--calendar-header-bg); font-weight: 600; font-size: 0.9em; color: var(--text-primary); transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease; }
+#calendar td { border: 1px solid var(--border-color); padding: 6px 8px; vertical-align: top; height: 110px; background-color: var(--calendar-cell-bg); text-align: left; position: relative; font-size: 0.9em; overflow: hidden; transition: background-color 0.3s ease, border-color 0.3s ease; }
+#calendar td.other-month { color: var(--other-month-text); background-color: var(--other-month-bg); }
 #calendar td.weekend { /* Optional styling if needed */ }
+#calendar td.assignment-day { background-color: var(--calendar-assignment-bg); }
+.date-number { display: block; position: absolute; top: 4px; right: 6px; font-weight: 600; font-size: 0.85em; color: var(--text-secondary); background-color: rgba(255, 255, 255, 0.0); padding: 1px 3px; border-radius: 2px; transition: color 0.3s ease; }
+[data-theme="dark"] .date-number { background-color: rgba(0, 0, 0, 0.0); }
+.assigned-position { font-size: 0.85em; color: var(--text-primary); display: block; margin-top: 4px; line-height: 1.45; padding-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: color 0.3s ease; }
+.assigned-position:first-of-type { margin-top: 22px; }
+.assigned-position strong { color: var(--link-color); min-width: 45px; display: inline-block; margin-right: 5px; transition: color 0.3s ease; }
+.assignment-skipped { font-size: 0.8em; color: var(--skipped-text); font-style: italic; padding-left: 2px; margin-top: 4px; transition: color 0.3s ease; }
 
-#calendar td.assignment-day {
-    background-color: var(--calendar-assignment-bg);
-}
+/* Styling for special assignments within calendar cells */
+.special-assignment { font-size: 0.80em; color: var(--text-secondary); display: block; margin-top: 3px; line-height: 1.3; padding-left: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-left: 2px solid var(--link-color); padding-left: 4px; transition: color 0.3s ease, border-color 0.3s ease; }
+.special-assignment strong { color: var(--text-primary); font-weight: 500; }
+.assigned-position + .special-assignment { margin-top: 6px; }
 
-.date-number {
-    display: block;
-    position: absolute;
-    top: 4px;
-    right: 6px;
-    font-weight: 600;
-    font-size: 0.85em;
-    color: var(--text-secondary);
-    background-color: rgba(255, 255, 255, 0.0); /* Make transparent, rely on text color */
-    padding: 1px 3px;
-    border-radius: 2px;
-    transition: color 0.3s ease;
-}
-[data-theme="dark"] .date-number {
-     background-color: rgba(0, 0, 0, 0.0); /* Ensure transparent in dark */
-}
-
-
-.assigned-position {
-    font-size: 0.85em;
-    color: var(--text-primary); /* Use themed text color */
-    display: block;
-    margin-top: 4px;
-    line-height: 1.45;
-    padding-left: 2px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: color 0.3s ease;
-}
-.assigned-position:first-of-type { margin-top: 22px; } /* Space below date number */
-
-.assigned-position strong {
-    color: var(--link-color); /* Use link color for position name */
-    min-width: 45px;
-    display: inline-block;
-    margin-right: 5px;
-    transition: color 0.3s ease;
-}
-
-.assignment-skipped {
-    font-size: 0.8em;
-    color: var(--skipped-text); /* Use variable for skipped text */
-    font-style: italic;
-    padding-left: 2px;
-    margin-top: 4px;
-    transition: color 0.3s ease;
-}
 
 /* --- General Buttons & Inputs --- */
-button {
-    padding: 7px 14px;
-    cursor: pointer;
-    border: 1px solid var(--button-default-border);
-    background-color: var(--button-default-bg);
-    color: var(--button-default-text);
-    border-radius: 5px;
-    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-    font-size: 0.9em;
-}
-button:hover {
-     background-color: var(--button-hover-bg);
-}
-
+button { padding: 7px 14px; cursor: pointer; border: 1px solid var(--button-default-border); background-color: var(--button-default-bg); color: var(--button-default-text); border-radius: 5px; transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease; font-size: 0.9em; }
+button:hover { background-color: var(--button-hover-bg); }
 /* Primary 'Add' buttons */
-#addMemberBtn, #addUnavailabilityBtn, #addPositionBtn, #addOverrideDayBtn, #addUserBtn { /* Added addUserBtn */
-    background-color: var(--button-primary-bg);
-    color: var(--button-primary-text);
-    border: none; /* Primary buttons might not need a border */
-    font-weight: 500;
-}
-#addMemberBtn:hover, #addUnavailabilityBtn:hover, #addPositionBtn:hover, #addOverrideDayBtn:hover, #addUserBtn:hover { /* Added addUserBtn hover */
-    background-color: var(--button-primary-hover-bg);
-}
-
+#addMemberBtn, #addUnavailabilityBtn, #addPositionBtn, #addOverrideDayBtn, #addUserBtn, #addSpecialAssignmentBtn { background-color: var(--button-primary-bg); color: var(--button-primary-text); border: none; font-weight: 500; } /* Added addSpecialAssignmentBtn */
+#addMemberBtn:hover, #addUnavailabilityBtn:hover, #addPositionBtn:hover, #addOverrideDayBtn:hover, #addUserBtn:hover, #addSpecialAssignmentBtn:hover { background-color: var(--button-primary-hover-bg); } /* Added addSpecialAssignmentBtn */
 /* Inputs and Selects */
-input[type="text"], input[type="password"], input[type="date"], select {
-    padding: 7px 10px;
-    border: 1px solid var(--input-border-color);
-    background-color: var(--input-bg-color);
-    color: var(--text-primary);
-    border-radius: 5px;
-    font-size: 0.95em;
-    width: 100%; /* Default to full width */
-    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.2s ease;
-}
-
+input[type="text"], input[type="password"], input[type="date"], select { padding: 7px 10px; border: 1px solid var(--input-border-color); background-color: var(--input-bg-color); color: var(--text-primary); border-radius: 5px; font-size: 0.95em; width: 100%; transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, box-shadow 0.2s ease; }
 /* Specific width adjustments */
-#team-input-area input[type="text"], #position-input-area input[type="text"], #override-day-input-area input[type="date"] {
-    width: auto; /* Allow shrinking in flex container */
-}
-#unavailability-input-area select {
-    padding: 6px 8px; /* Match date input padding */
-}
-
-input:focus, select:focus {
-    outline: none;
-    border-color: var(--link-color); /* Use link color for focus border */
-    box-shadow: 0 0 0 0.2rem var(--focus-ring-color); /* Use themed focus ring */
-}
+#team-input-area input[type="text"], #position-input-area input[type="text"], #override-day-input-area input[type="date"] { width: auto; }
+#unavailability-input-area select { padding: 6px 8px; }
+input:focus, select:focus { outline: none; border-color: var(--link-color); box-shadow: 0 0 0 0.2rem var(--focus-ring-color); }
 
 
 /* --- Responsive Adjustments --- */
@@ -471,94 +314,28 @@ input:focus, select:focus {
     #scheduler { flex-direction: column; height: auto; min-height: 100%; padding: 15px; gap: 20px; }
     #team-management { flex-basis: auto; flex-shrink: 0; min-width: unset; max-width: 100%; border-right: none; padding-right: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 20px; }
     #team-list { max-height: 200px; min-height: 100px; flex-grow: 0; }
-    #unavailability-section, #position-management-section, #override-days-section, #user-management-section { margin-top: 20px; } /* Added user management */
-    #unavailable-list, #position-list, #override-days-list { max-height: 120px; }
+    #unavailability-section, #position-management-section, #override-days-section, #special-assignments-section, #user-management-section { margin-top: 20px; } /* Added special, user */
+    #unavailable-list, #position-list, #override-days-list, #special-assignments-list { max-height: 120px; } /* Added special */
     #calendar td { height: 100px; font-size: 0.85em; }
     .date-number { font-size: 0.8em; }
     .assigned-position { font-size: 0.8em; }
-    #calendar-header { justify-content: center; } /* Center items more on mobile */
-    #calendar-header h2 { order: 1; flex-grow: 0; width: 100%; text-align: center; margin-bottom: 10px;} /* Title first */
-    #calendar-nav-buttons { order: 2; } /* Nav second */
+    .special-assignment { font-size: 0.75em; } /* Adjust special assignment size */
+    #calendar-header { justify-content: center; }
+    #calendar-header h2 { order: 1; flex-grow: 0; width: 100%; text-align: center; margin-bottom: 10px;}
+    #calendar-nav-buttons { order: 2; }
     #randomizeBtn { order: 3; }
-    #logoutBtn { order: 4; margin-left: 10px; } /* Keep logout spaced */
+    #logoutBtn { order: 4; margin-left: 10px; }
     #theme-toggle { order: 5; }
 }
 
 /* --- Login Page Styles (Now using variables) --- */
-body.login-page { /* Add this class to body tag in login.html if you want specific body styles */
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: 100vh;
-    background-color: var(--bg-primary); /* Use variable */
-}
-
-#login-container {
-    background: var(--bg-secondary); /* Use variable */
-    color: var(--text-primary); /* Use variable */
-    padding: 30px 40px;
-    border-radius: 8px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    width: 100%;
-    max-width: 400px;
-    text-align: center;
-    border: 1px solid var(--border-color); /* Add subtle border */
-    transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease;
-}
-
-#login-container h2 {
-    margin-bottom: 25px;
-    color: var(--header-color); /* Use variable */
-    transition: color 0.3s ease;
-}
-
+body.login-page { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: var(--bg-primary); }
+#login-container { background: var(--bg-secondary); color: var(--text-primary); padding: 30px 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center; border: 1px solid var(--border-color); transition: background-color 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
+#login-container h2 { margin-bottom: 25px; color: var(--header-color); transition: color 0.3s ease; }
 .form-group { margin-bottom: 20px; text-align: left; }
-
-.form-group label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 500;
-    color: var(--text-secondary); /* Use variable */
-    transition: color 0.3s ease;
-}
-
-/* Use general input styling from above */
-/* .form-group input { ... } */
-
-#login-button {
-    width: 100%;
-    padding: 12px;
-    background-color: var(--button-primary-bg); /* Use variable */
-    color: var(--button-primary-text); /* Use variable */
-    border: none;
-    border-radius: 4px;
-    font-size: 1.1em;
-    cursor: pointer;
-    transition: background-color 0.2s ease, color 0.2s ease;
-}
-#login-button:hover {
-    background-color: var(--button-primary-hover-bg); /* Use variable */
-}
-
-#error-message {
-    color: var(--button-danger-bg); /* Use variable */
-    margin-top: 15px;
-    min-height: 1em;
-    font-size: 0.9em;
-    transition: color 0.3s ease;
-}
-
-.login-note {
-    font-size: 0.8em;
-    color: var(--text-secondary); /* Use variable */
-    margin-top: 20px;
-    transition: color 0.3s ease;
-}
-
-/* Place theme toggle nicely on login page (since no header) */
-body.login-page #theme-toggle {
-    position: absolute; /* Position relative to body */
-    top: 20px;
-    right: 20px;
-    /* Inherits basic button styles, ensure it looks okay */
-}
+.form-group label { display: block; margin-bottom: 5px; font-weight: 500; color: var(--text-secondary); transition: color 0.3s ease; }
+#login-button { width: 100%; padding: 12px; background-color: var(--button-primary-bg); color: var(--button-primary-text); border: none; border-radius: 4px; font-size: 1.1em; cursor: pointer; transition: background-color 0.2s ease, color 0.2s ease; }
+#login-button:hover { background-color: var(--button-primary-hover-bg); }
+#error-message { color: var(--button-danger-bg); margin-top: 15px; min-height: 1em; font-size: 0.9em; transition: color 0.3s ease; }
+.login-note { font-size: 0.8em; color: var(--text-secondary); margin-top: 20px; transition: color 0.3s ease; }
+body.login-page #theme-toggle { position: absolute; top: 20px; right: 20px; }
