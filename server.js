@@ -3,12 +3,12 @@ const express = require('express');
 const mysql = require('mysql2/promise');
 const session = require('express-session');
 const path = require('path');
-// const bcrypt = require('bcrypt'); // <<< REMEMBER TO REQUIRE BCRYPT WHEN IMPLEMENTING HASHING
+const bcrypt = require('bcrypt'); // <<< REQUIRE BCRYPT
 
 // --- Configuration ---
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'your-very-secret-key-override'; // Use a strong secret
-// const SALT_ROUNDS = 10; // Example salt rounds for bcrypt
+const SALT_ROUNDS = 10; // <<< DEFINE SALT ROUNDS for bcrypt
 
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
@@ -82,27 +82,29 @@ app.post('/login', async (req, res) => {
         const user = rows[0];
 
         // --- !!! CRITICAL SECURITY POINT !!! ---
-        // !! DO NOT USE PLAIN TEXT PASSWORD COMPARISON IN PRODUCTION !!
-        // !! Replace the line below with bcrypt.compare !!
-        //
-        // Example Implementation:
-        // const match = await bcrypt.compare(password, user.password); // user.password MUST be the HASH from the DB
-        // if (match) {
-        //     // Passwords match - proceed with session creation
+        // !! Replace the IF below with bcrypt.compare !!
+        const match = await bcrypt.compare(password, user.password); // user.password MUST be the HASH from the DB
+        if (match) {
+            // Passwords match - proceed with session creation
+            req.session.user = { id: user.id, username: user.username, role: user.role };
+            console.log(`User login successful: ${user.username} (${user.role})`);
+            res.json({ success: true, role: user.role });
+        } else {
+            // Passwords don't match
+            console.warn(`Failed login attempt for user: ${username}`);
+            res.status(401).json({ success: false, message: 'Invalid credentials.' });
+        }
+        // --- !!! END SECURITY POINT !!! ---
+
+        // <<< REMOVE THIS OLD PLAIN TEXT CHECK >>>
+        // if (password === user.password) {
         //     req.session.user = { id: user.id, username: user.username, role: user.role };
         //     res.json({ success: true, role: user.role });
         // } else {
-        //     // Passwords don't match
         //     res.status(401).json({ success: false, message: 'Invalid credentials.' });
         // }
-        // --- !!! END SECURITY POINT !!! ---
+        // <<< --- >>>
 
-        if (password === user.password) { // <<< REPLACE THIS LINE WITH BCRYPT CHECK
-            req.session.user = { id: user.id, username: user.username, role: user.role };
-            res.json({ success: true, role: user.role });
-        } else {
-            res.status(401).json({ success: false, message: 'Invalid credentials.' });
-        }
     } catch (error) {
         console.error('Login error:', error);
         res.status(500).json({ success: false, message: 'Server error during login.' });
@@ -110,11 +112,13 @@ app.post('/login', async (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
+    const username = req.session.user ? req.session.user.username : 'Unknown user';
     req.session.destroy(err => {
         if (err) {
-            console.error('Logout error:', err);
+            console.error(`Logout error for ${username}:`, err);
             return res.status(500).json({ success: false, message: 'Could not log out.' });
         }
+        console.log(`User logout successful: ${username}`);
         res.clearCookie('connect.sid'); // Use the default session cookie name
         res.json({ success: true });
     });
@@ -290,6 +294,51 @@ app.delete('/api/overrides/:date', requireLogin('admin'), async (req, res) => {
         res.status(500).send('Server error deleting override day.');
     }
 });
+
+
+// <<< NEW: USER MANAGEMENT API (Admin Only) >>>
+app.post('/api/users', requireLogin('admin'), async (req, res) => {
+    const { username, password, role } = req.body;
+
+    // Basic Validation
+    if (!username || !password || !role) {
+        return res.status(400).json({ success: false, message: 'Username, password, and role are required.' });
+    }
+    if (role !== 'admin' && role !== 'user') {
+        return res.status(400).json({ success: false, message: 'Invalid role specified. Must be "admin" or "user".' });
+    }
+    if (password.length < 6) { // Example minimum password length check
+         return res.status(400).json({ success: false, message: 'Password must be at least 6 characters long.' });
+    }
+
+    try {
+        // --- Hash the password ---
+        console.log(`Hashing password for user: ${username}`);
+        const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+        console.log(`Password hashed successfully for user: ${username}`);
+        // -------------------------
+
+        // Insert the new user with the HASHED password
+        await pool.query(
+            'INSERT INTO users (username, password, role) VALUES (?, ?, ?)',
+            [username, hashedPassword, role]
+        );
+
+        console.log(`Admin ${req.session.user.username} created new user: ${username} with role: ${role}`);
+        res.status(201).json({ success: true, message: `User '${username}' created successfully.` });
+
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            // Handle unique constraint violation for username
+            console.warn(`Failed to create user '${username}'. Username already exists.`);
+            return res.status(409).json({ success: false, message: `Username '${username}' already exists.` });
+        }
+        // Handle other potential errors
+        console.error(`Error creating user '${username}':`, error);
+        res.status(500).json({ success: false, message: 'Server error while creating user.' });
+    }
+});
+// <<< END USER MANAGEMENT API >>>
 
 
 // --- HTML Serving Routes ---

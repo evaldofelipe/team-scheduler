@@ -22,6 +22,12 @@ const unavailableList = document.getElementById('unavailable-list');
 const overrideDateInput = document.getElementById('overrideDateInput');
 const addOverrideDayBtn = document.getElementById('addOverrideDayBtn');
 const overrideDaysList = document.getElementById('override-days-list');
+// <<< NEW User Management Selectors >>>
+const newUsernameInput = document.getElementById('newUsername');
+const newPasswordInput = document.getElementById('newPassword');
+const newUserRoleSelect = document.getElementById('newUserRole');
+const addUserBtn = document.getElementById('addUserBtn');
+const userFeedbackMessage = document.getElementById('user-feedback-message');
 // Theme Toggle (Button itself is selected below)
 
 // --- State Variables ---
@@ -145,7 +151,7 @@ function populateMemberDropdown() {
     });
 }
 
-// <<< UPDATE: Render Unavailability List with Filtering by Current Month >>>
+// UPDATE: Render Unavailability List with Filtering by Current Month
 function renderUnavailableList() {
     unavailableList.innerHTML = '';
 
@@ -166,10 +172,13 @@ function renderUnavailableList() {
 
     if (filteredEntries.length === 0) {
         unavailableList.innerHTML = '<li>No unavailability entered for this month.</li>';
-        unavailableList.querySelector('li').style.justifyContent = 'center';
-        unavailableList.querySelector('li').style.color = 'var(--text-secondary)';
-        unavailableList.querySelector('li').style.fontStyle = 'italic';
-
+        // Style the placeholder message
+        const placeholderLi = unavailableList.querySelector('li');
+        if(placeholderLi){
+             placeholderLi.style.justifyContent = 'center';
+             placeholderLi.style.color = 'var(--text-secondary)';
+             placeholderLi.style.fontStyle = 'italic';
+        }
     } else {
         filteredEntries.forEach((entry) => {
             const li = document.createElement('li');
@@ -188,7 +197,7 @@ function renderUnavailableList() {
     if (unavailableList.lastChild) unavailableList.lastChild.style.borderBottom = 'none';
 }
 
-// <<< UPDATE: Render Override Days List with Filtering by Current Month >>>
+// UPDATE: Render Override Days List with Filtering by Current Month
 function renderOverrideDaysList() {
     overrideDaysList.innerHTML = '';
 
@@ -208,9 +217,13 @@ function renderOverrideDaysList() {
 
      if (filteredOverrideDays.length === 0) {
         overrideDaysList.innerHTML = '<li>No override days set for this month.</li>';
-        overrideDaysList.querySelector('li').style.justifyContent = 'center';
-        overrideDaysList.querySelector('li').style.color = 'var(--text-secondary)';
-        overrideDaysList.querySelector('li').style.fontStyle = 'italic';
+        // Style the placeholder message
+        const placeholderLi = overrideDaysList.querySelector('li');
+         if(placeholderLi){
+            placeholderLi.style.justifyContent = 'center';
+            placeholderLi.style.color = 'var(--text-secondary)';
+            placeholderLi.style.fontStyle = 'italic';
+        }
     } else {
         filteredOverrideDays.forEach((dateStr) => {
             const li = document.createElement('li');
@@ -257,8 +270,8 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     const canAssign = membersToAssign && membersToAssign.length > 0;
     const hasPositions = positions && positions.length > 0;
 
-    console.log(`Rendering calendar for ${year}-${month+1}`);
-    console.log(`Using members: ${membersToAssign.join(', ')}`);
+    // console.log(`Rendering calendar for ${year}-${month+1}`);
+    // console.log(`Using members: ${membersToAssign.join(', ')}`);
 
     for (let week = 0; week < 6; week++) { // Max 6 rows needed
         const row = document.createElement('tr');
@@ -313,7 +326,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                             // No available member found after checking everyone
                             assignmentDiv.classList.add('assignment-skipped');
                             assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`;
-                             console.log(`Skipped ${position.name} on ${currentCellDateStr} - no available members.`);
+                            // console.log(`Skipped ${position.name} on ${currentCellDateStr} - no available members.`);
                             // Ensure counter advances even if skipped to avoid getting stuck
                             if (attempts === membersToAssign.length) {
                                 assignmentCounter++; // Move past this slot
@@ -344,7 +357,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 
 // --- Action Functions (Call APIs & Update UI) ---
 
-// Generic helper for API calls to reduce repetition
+// Generic helper for API calls to reduce repetition (kept for existing actions)
 async function apiCall(url, options, successCallback) {
     try {
         const response = await fetch(url, options);
@@ -361,9 +374,16 @@ async function apiCall(url, options, successCallback) {
              }
         } else {
              // Try to get error message from server response body
-             const errorText = await response.text();
-             console.error(`API Error (${response.status} ${response.statusText}) for ${url}: ${errorText}`);
-             alert(`Operation failed: ${errorText || response.statusText}`);
+             let errorText = `Operation failed (${response.status} ${response.statusText})`;
+             try {
+                 const errorJson = await response.json();
+                 errorText = errorJson.message || errorText;
+             } catch(e) {
+                 // If response is not JSON, try reading as text
+                 try { errorText = await response.text() || errorText; } catch (e2) {}
+             }
+             console.error(`API Error for ${url}: ${errorText}`);
+             alert(errorText); // Show specific error from server if possible
         }
     } catch (error) {
         console.error(`Network or execution error for ${url}:`, error);
@@ -425,10 +445,6 @@ async function addUnavailability() {
     const dateValue = unavailabilityDateInput.value; // YYYY-MM-DD format from input type="date"
     const memberName = unavailabilityMemberSelect.value;
     if (!dateValue || !memberName) { alert("Please select both a date and a member."); return; }
-
-    // Optional: Clear inputs after trying to add
-    // unavailabilityDateInput.value = '';
-    // unavailabilityMemberSelect.value = '';
 
     await apiCall('/api/unavailability', {
         method: 'POST',
@@ -492,19 +508,87 @@ async function logout() {
     }
 }
 
+// <<< NEW: Add User Function >>>
+async function addUser() {
+    const username = newUsernameInput.value.trim();
+    const password = newPasswordInput.value; // Get password as is (don't trim)
+    const role = newUserRoleSelect.value;
+
+    // Clear previous feedback
+    userFeedbackMessage.textContent = '';
+    userFeedbackMessage.className = 'feedback-message'; // Reset class
+
+    // Basic client-side validation
+    if (!username || !password || !role) {
+        userFeedbackMessage.textContent = 'Please fill in all user fields.';
+        userFeedbackMessage.classList.add('error');
+        return;
+    }
+     if (password.length < 6) { // Match server validation if possible
+        userFeedbackMessage.textContent = 'Password must be at least 6 characters.';
+        userFeedbackMessage.classList.add('error');
+        return;
+    }
+
+    console.log(`Attempting to add user: ${username}, Role: ${role}`); // Don't log password
+
+    // Disable button during request
+    addUserBtn.disabled = true;
+    addUserBtn.textContent = 'Adding...';
+
+    try {
+        const response = await fetch('/api/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password, role }) // Send plain password to server
+        });
+
+        const result = await response.json(); // Expect JSON response
+
+        if (response.ok && result.success) {
+            userFeedbackMessage.textContent = result.message || `User '${username}' added successfully!`;
+            userFeedbackMessage.classList.add('success');
+            // Clear the form on success
+            newUsernameInput.value = '';
+            newPasswordInput.value = '';
+            newUserRoleSelect.value = 'user'; // Reset role to default
+            console.log(`Successfully added user: ${username}`);
+            // Optional: Clear message after a few seconds
+            setTimeout(() => {
+                userFeedbackMessage.textContent = '';
+                userFeedbackMessage.className = 'feedback-message';
+            }, 5000); // Clear after 5 seconds
+        } else {
+             // Display error message from server
+             userFeedbackMessage.textContent = result.message || `Failed to add user (${response.status})`;
+             userFeedbackMessage.classList.add('error');
+             console.error(`Failed to add user: ${response.status}`, result);
+        }
+    } catch (error) {
+        console.error("Error during add user request:", error);
+        userFeedbackMessage.textContent = 'A network error occurred. Please try again.';
+        userFeedbackMessage.classList.add('error');
+    } finally {
+        // Re-enable button
+        addUserBtn.disabled = false;
+        addUserBtn.textContent = 'Add User';
+    }
+}
+
+
 // --- Event Listeners ---
 prevMonthBtn.addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() - 1);
     renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    renderUnavailableList(); // <<< UPDATE: Re-render list on month change
-    renderOverrideDaysList(); // <<< UPDATE: Re-render list on month change
+    renderUnavailableList(); // UPDATE: Re-render list on month change
+    renderOverrideDaysList(); // UPDATE: Re-render list on month change
 });
 
 nextMonthBtn.addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() + 1);
     renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    renderUnavailableList(); // <<< UPDATE: Re-render list on month change
-    renderOverrideDaysList(); // <<< UPDATE: Re-render list on month change
+    renderUnavailableList(); // UPDATE: Re-render list on month change
+    renderOverrideDaysList(); // UPDATE: Re-render list on month change
 });
 
 randomizeBtn.addEventListener('click', () => {
@@ -535,6 +619,17 @@ addUnavailabilityBtn.addEventListener('click', addUnavailability);
 // Override Day listeners
 addOverrideDayBtn.addEventListener('click', addOverrideDay);
 overrideDateInput.addEventListener('keypress', (event) => { if (event.key === 'Enter') { event.preventDefault(); addOverrideDay(); }});
+
+// <<< NEW User Listener >>>
+addUserBtn.addEventListener('click', addUser);
+// Optional: Add user on Enter press in password field
+newPasswordInput.addEventListener('keypress', (event) => {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        addUser();
+    }
+});
+
 
 // --- Theme Toggle ---
 function initializeTheme() {

@@ -116,7 +116,7 @@ body {
     transition: border-color 0.3s ease;
 }
 
-#team-management h3, #unavailability-section h4, #position-management-section h4, #override-days-section h4 {
+#team-management h3, #unavailability-section h4, #position-management-section h4, #override-days-section h4, #user-management-section h4 { /* Added user management */
     margin-top: 0;
     color: var(--header-color);
     padding-bottom: 10px;
@@ -130,7 +130,7 @@ body {
     transition: border-color 0.3s ease;
 }
 
-#unavailability-section h4, #position-management-section h4, #override-days-section h4 {
+#unavailability-section h4, #position-management-section h4, #override-days-section h4, #user-management-section h4 { /* Added user management */
     font-size: 1.1em;
 }
 
@@ -199,7 +199,7 @@ body {
 }
 
 /* Sidebar Sections Separators */
-#unavailability-section, #position-management-section, #override-days-section {
+#unavailability-section, #position-management-section, #override-days-section, #user-management-section { /* Added user management */
     margin-top: 25px;
     padding-top: 15px;
     border-top: 2px solid var(--border-color); /* Use border-color */
@@ -221,6 +221,48 @@ body {
     align-self: flex-end;
     flex-grow: 0;
 }
+
+/* --- User Management Section Styles --- */
+#user-management-section {
+    /* Spacing/border handled by common rule above */
+}
+
+#user-input-area {
+    display: flex;
+    flex-direction: column; /* Stack fields vertically */
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+#user-input-area .form-group {
+     margin-bottom: 5px; /* Reduce gap between label/input */
+}
+
+#user-input-area label {
+    font-size: 0.9em;
+    color: var(--text-secondary);
+    margin-bottom: 3px;
+    display: block;
+    transition: color 0.3s ease;
+}
+
+/* Inputs already styled globally */
+
+#addUserBtn {
+    margin-top: 5px; /* Space above button */
+    align-self: flex-start; /* Align button left */
+    /* Styling inherited from primary button style */
+}
+
+.feedback-message {
+    margin-top: 10px;
+    font-size: 0.9em;
+    min-height: 1em; /* Prevent layout shift */
+    transition: color 0.3s ease;
+}
+.feedback-message.success { color: var(--button-primary-bg); } /* Use appropriate variable */
+.feedback-message.error { color: var(--button-danger-bg); } /* Use appropriate variable */
+
 
 /* --- Calendar View --- */
 #calendar-view { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; }
@@ -261,7 +303,7 @@ body {
 #calendar-nav-buttons button:hover { background-color: var(--button-hover-bg); }
 
 
-/* --- Theme Toggle Button (NEW POSITIONING) --- */
+/* --- Theme Toggle Button (POSITIONING IN HEADER) --- */
 #theme-toggle {
     order: 5; /* Place it last in the header flex flow */
     margin-left: 10px; /* Space from logout button */
@@ -386,13 +428,13 @@ button:hover {
 }
 
 /* Primary 'Add' buttons */
-#addMemberBtn, #addUnavailabilityBtn, #addPositionBtn, #addOverrideDayBtn {
+#addMemberBtn, #addUnavailabilityBtn, #addPositionBtn, #addOverrideDayBtn, #addUserBtn { /* Added addUserBtn */
     background-color: var(--button-primary-bg);
     color: var(--button-primary-text);
     border: none; /* Primary buttons might not need a border */
     font-weight: 500;
 }
-#addMemberBtn:hover, #addUnavailabilityBtn:hover, #addPositionBtn:hover, #addOverrideDayBtn:hover {
+#addMemberBtn:hover, #addUnavailabilityBtn:hover, #addPositionBtn:hover, #addOverrideDayBtn:hover, #addUserBtn:hover { /* Added addUserBtn hover */
     background-color: var(--button-primary-hover-bg);
 }
 
@@ -429,7 +471,7 @@ input:focus, select:focus {
     #scheduler { flex-direction: column; height: auto; min-height: 100%; padding: 15px; gap: 20px; }
     #team-management { flex-basis: auto; flex-shrink: 0; min-width: unset; max-width: 100%; border-right: none; padding-right: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 20px; }
     #team-list { max-height: 200px; min-height: 100px; flex-grow: 0; }
-    #unavailability-section, #position-management-section, #override-days-section { margin-top: 20px; }
+    #unavailability-section, #position-management-section, #override-days-section, #user-management-section { margin-top: 20px; } /* Added user management */
     #unavailable-list, #position-list, #override-days-list { max-height: 120px; }
     #calendar td { height: 100px; font-size: 0.85em; }
     .date-number { font-size: 0.8em; }
