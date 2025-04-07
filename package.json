@@ -9,13 +9,14 @@
       "test": "echo \"Error: no test specified\" && exit 1"
     },
     "dependencies": {
-      "express": "^4.18.2",         
-      "express-session": "^1.17.3", 
+      "bcrypt": "^5.1.1",         # <<< CONFIRMED: bcrypt is listed here
+      "express": "^4.18.2",
+      "express-session": "^1.17.3",
       "mysql2": "^3.6.5"
     },
     "devDependencies": {
       "nodemon": "^3.0.2"
     },
     "author": "Your Name",
-    "license": "ISC"      
+    "license": "ISC"
   }
