@@ -11,12 +11,17 @@ function toggleTheme() {
     localStorage.setItem('theme', newTheme);
 }
 
-// Add event listener for theme toggle
-document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
-initializeTheme();
+const themeToggleBtn = document.getElementById('theme-toggle');
+if (themeToggleBtn) {
+    themeToggleBtn.addEventListener('click', toggleTheme);
+}
+initializeTheme(); // Initialize theme on load
 
+
+// Login Form Logic
 const loginForm = document.getElementById('login-form');
 const errorMessageDiv = document.getElementById('error-message');
+const usernameInput = document.getElementById('username'); // Get username input
 
 // Check for messages passed via query parameter (e.g., after redirect)
 const urlParams = new URLSearchParams(window.location.search);
@@ -29,8 +34,18 @@ loginForm.addEventListener('submit', async (event) => {
     event.preventDefault(); // Prevent default form submission
     errorMessageDiv.textContent = ''; // Clear previous errors
 
-    const username = document.getElementById('username').value;
+    const username = usernameInput.value;
     const password = document.getElementById('password').value;
+
+    if (!username || !password) {
+        errorMessageDiv.textContent = 'Please enter both username and password.';
+        return;
+    }
+
+    // Indicate loading state (optional)
+    const loginButton = document.getElementById('login-button');
+    loginButton.disabled = true;
+    loginButton.textContent = 'Logging in...';
 
     try {
         const response = await fetch('/login', {
@@ -41,7 +56,7 @@ loginForm.addEventListener('submit', async (event) => {
             body: JSON.stringify({ username, password }),
         });
 
-        const result = await response.json();
+        const result = await response.json(); // Expect JSON response always
 
         if (response.ok && result.success) {
             // Login successful - redirect based on role
@@ -50,12 +65,20 @@ loginForm.addEventListener('submit', async (event) => {
             } else {
                 window.location.href = '/user';  // Redirect to user dashboard
             }
+            // No need to re-enable button as page is redirecting
         } else {
-            // Login failed - display error message
+            // Login failed - display error message from server or generic one
             errorMessageDiv.textContent = result.message || 'Login failed. Please try again.';
+            loginButton.disabled = false; // Re-enable button
+            loginButton.textContent = 'Login';
         }
     } catch (error) {
         console.error('Login request failed:', error);
-        errorMessageDiv.textContent = 'An error occurred during login. Please check console.';
+        errorMessageDiv.textContent = 'An network error occurred during login. Please check console or try again later.';
+        loginButton.disabled = false; // Re-enable button on error
+        loginButton.textContent = 'Login';
     }
 });
+
+// Focus username field on load
+usernameInput.focus();

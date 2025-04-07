@@ -31,6 +31,12 @@ CREATE TABLE IF NOT EXISTS unavailability (
     -- FOREIGN KEY (member_id) REFERENCES team_members(id) ON DELETE CASCADE
 );
 
+-- Create the override_assignment_days table  -- <<< ADDED THIS TABLE >>>
+CREATE TABLE IF NOT EXISTS override_assignment_days (
+    override_date DATE NOT NULL PRIMARY KEY, -- The specific date that acts as an override
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Create the users table for login
 CREATE TABLE IF NOT EXISTS users (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -46,14 +52,18 @@ CREATE TABLE IF NOT EXISTS users (
 DELETE FROM users WHERE username IN ('admin_user', 'regular_user');
 
 -- Insert sample admin user (Password: adminpass)
--- In production, hash 'adminpass' using bcrypt before inserting
+-- !! IMPORTANT !! In production, hash 'adminpass' using bcrypt *before* inserting!
+-- Example: const hashedPassword = await bcrypt.hash('adminpass', 10);
+-- Then insert the hashedPassword variable below instead of 'adminpass'.
 INSERT INTO users (username, password, role) VALUES
-('admin_user', 'adminpass', 'admin'); -- !! Use a HASHED password in production !!
+('admin_user', 'adminpass', 'admin'); -- !! REPLACE 'adminpass' WITH HASHED PASSWORD !!
 
 -- Insert sample regular user (Password: userpass)
--- In production, hash 'userpass' using bcrypt before inserting
+-- !! IMPORTANT !! In production, hash 'userpass' using bcrypt *before* inserting!
+-- Example: const hashedPassword = await bcrypt.hash('userpass', 10);
+-- Then insert the hashedPassword variable below instead of 'userpass'.
 INSERT INTO users (username, password, role) VALUES
-('regular_user', 'userpass', 'user'); -- !! Use a HASHED password in production !!
+('regular_user', 'userpass', 'user'); -- !! REPLACE 'userpass' WITH HASHED PASSWORD !!
 
 -- Optional: Add some initial team members (Uncomment if needed)
 -- INSERT INTO team_members (name) VALUES ('Alice'), ('Bob'), ('Charlie')
@@ -66,17 +76,3 @@ INSERT INTO users (username, password, role) VALUES
 -- Optional: Add some initial unavailability (Uncomment if needed)
 -- INSERT INTO unavailability (member_name, unavailable_date) VALUES ('Bob', '2024-03-20')
 -- ON DUPLICATE KEY UPDATE member_name=member_name;
-
--- Add this CREATE TABLE statement to your database_setup.sql file
--- Rerun the script against your database
-
--- Create table for overriding default assignment days
-CREATE TABLE IF NOT EXISTS override_assignment_days (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    override_date DATE NOT NULL UNIQUE, -- Store the specific date to enable assignments
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Optional: Add a sample override day (Uncomment if needed)
--- INSERT INTO override_assignment_days (override_date) VALUES ('2024-04-01') -- Example: April 1st, 2024
--- ON DUPLICATE KEY UPDATE override_date=override_date; -- Avoid error if it exists

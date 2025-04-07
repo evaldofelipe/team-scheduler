@@ -9,7 +9,7 @@
 <body>
 
 <div id="scheduler">
-    <!-- Team Management Section (no changes here) -->
+    <!-- Team Management Section -->
     <div id="team-management">
         <h3>Team Members</h3>
         <div id="team-input-area">
@@ -18,7 +18,7 @@
         </div>
         <ul id="team-list"></ul>
 
-        <!-- Position Management Section (no changes here) -->
+        <!-- Position Management Section -->
         <div id="position-management-section">
              <h4>Manage Positions</h4>
              <div id="position-input-area">
@@ -28,9 +28,9 @@
              <ul id="position-list"></ul>
          </div>
 
-        <!-- Unavailability Section (no changes here) -->
+        <!-- Unavailability Section -->
         <div id="unavailability-section">
-            <h4>Member Unavailability</h4>
+            <h4>Member Unavailability (Current Month)</h4> <!-- Updated title -->
             <div id="unavailability-input-area">
                 <div>
                     <label for="unavailabilityDate">Date:</label>
@@ -47,15 +47,15 @@
             <ul id="unavailable-list"></ul>
         </div>
 
-        <!-- Override Assignment Days Section (no changes here) -->
+        <!-- Override Assignment Days Section -->
         <div id="override-days-section">
-             <h4>Override Assignment Days</h4>
+             <h4>Override Assignment Days (Current Month)</h4> <!-- Updated title -->
              <div id="override-day-input-area">
                  <input type="date" id="overrideDateInput" title="Select date to force assignments">
                  <button id="addOverrideDayBtn">Add Override Day</button>
              </div>
              <ul id="override-days-list">
-                 <!-- Override days listed here by admin.js -->
+                 <!-- Filtered override days listed here by admin.js -->
              </ul>
          </div>
         <!-- END Override Section -->
