@@ -10,62 +10,70 @@ const logoutBtn = document.getElementById('logoutBtn');
 let currentDate = new Date();
 let teamMembers = [];
 let positions = [];
-let unavailableEntries = []; // Stores ALL fetched entries
+let unavailableEntries = []; // Stores ALL fetched unavailability entries
 let overrideDays = []; // Stores ALL fetched override date strings
+let specialAssignments = []; // <<< NEW: Store special assignments for the current month
 let assignmentCounter = 0;
 
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
 
 // --- Helper Functions ---
- function formatDateYYYYMMDD(dateInput) {
+ function formatDateYYYYMMDD(dateInput) { /* ... no change ... */
     try { const date = new Date(dateInput); const year = date.getUTCFullYear(); const month = String(date.getUTCMonth() + 1).padStart(2, '0'); const day = String(date.getUTCDate()).padStart(2, '0'); return `${year}-${month}-${day}`; } catch (e) { return ""; }
 }
 
 // --- API Interaction ---
- async function fetchData() {
+ async function fetchData() { // <<< UPDATED >>>
     console.log("Fetching data for user view...");
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth() + 1; // API expects 1-indexed month
+
     try {
         // Fetch all data needed to render the calendar accurately
-        const [membersRes, unavailRes, positionsRes, overridesRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialRes] = await Promise.all([ // <<< Added specialRes
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
-            fetch('/api/overrides')
+            fetch('/api/overrides'),
+            fetch(`/api/special-assignments?year=${year}&month=${month}`) // <<< Fetch special assignments
         ]);
 
          // Check for 401 Unauthorized first
-         if ([membersRes.status, unavailRes.status, positionsRes.status, overridesRes.status].includes(401)) {
+         if ([membersRes, unavailRes, positionsRes, overridesRes, specialRes].some(res => res.status === 401)) { // <<< Added specialRes check
              console.warn("User session expired or unauthorized. Redirecting to login.");
              window.location.href = '/login.html?message=Session expired. Please log in.';
              return false;
          }
 
          // Check for other errors
-         if (!membersRes.ok || !unavailRes.ok || !positionsRes.ok || !overridesRes.ok) {
-            let errorStatuses = [];
-            if (!membersRes.ok) errorStatuses.push(`Members: ${membersRes.status} ${membersRes.statusText}`);
-            if (!unavailRes.ok) errorStatuses.push(`Unavailability: ${unavailRes.status} ${unavailRes.statusText}`);
-            if (!positionsRes.ok) errorStatuses.push(`Positions: ${positionsRes.status} ${positionsRes.statusText}`);
-            if (!overridesRes.ok) errorStatuses.push(`Overrides: ${overridesRes.status} ${overridesRes.statusText}`);
-            throw new Error(`HTTP error fetching data! Statuses - ${errorStatuses.join(', ')}`);
-         }
+        const responses = { membersRes, unavailRes, positionsRes, overridesRes, specialRes }; // <<< Added specialRes
+        let errorMessages = [];
+        for (const key in responses) {
+            if (!responses[key].ok) {
+                errorMessages.push(`${key.replace('Res','')}: ${responses[key].status} ${responses[key].statusText}`);
+            }
+        }
+        if (errorMessages.length > 0) {
+            throw new Error(`HTTP error fetching data! Statuses - ${errorMessages.join(', ')}`);
+        }
 
         // Store all fetched data
         teamMembers = await membersRes.json();
         unavailableEntries = await unavailRes.json();
         positions = await positionsRes.json();
         overrideDays = await overridesRes.json();
+        specialAssignments = await specialRes.json(); // <<< Store special assignments
 
         console.log("User View Fetched Team Members:", teamMembers);
         console.log("User View Fetched Positions:", positions);
         console.log("User View Fetched Unavailability (All):", unavailableEntries);
         console.log("User View Fetched Override Days (All):", overrideDays);
+        console.log(`User View Fetched Special Assignments (Month ${month}/${year}):`, specialAssignments); // <<< Log special assignments
         return true; // Indicate success
 
     } catch (error) {
         console.error("Failed to fetch initial data for user view:", error);
-        // Avoid alert loops
         if (!document.body.dataset.fetchErrorShown) {
              alert("Failed to load schedule data. Please check the console and try refreshing.");
              document.body.dataset.fetchErrorShown = "true";
@@ -77,41 +85,37 @@ const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
 // --- UI Rendering ---
 // These functions need to be IDENTICAL to admin.js to ensure consistent calendar display
 
-function isMemberUnavailable(memberName, dateYYYYMMDD) {
-    // Check against the full list of unavailable entries
+function isMemberUnavailable(memberName, dateYYYYMMDD) { /* ... no change ... */
     return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
 }
 
-function shouldAssignOnDate(dayOfWeek, dateStr) {
-    // Check if it's one of the default assignment days OR if it's in the full override list
+function shouldAssignOnDate(dayOfWeek, dateStr) { /* ... no change ... */
     return DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) || overrideDays.includes(dateStr);
 }
 
-// renderCalendar function is identical to admin.js version
+// renderCalendar function is identical to admin.js version <<< UPDATED >>>
 function renderCalendar(year, month, membersToAssign = teamMembers) {
     calendarBody.innerHTML = '';
     monthYearHeader.textContent = `${new Date(year, month).toLocaleString('default', { month: 'long' })} ${year}`;
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const daysInMonth = lastDayOfMonth.getDate();
-    const startDayOfWeek = firstDayOfMonth.getDay(); // 0=Sun, 6=Sat
-    assignmentCounter = 0; // Reset assignment counter for consistent rendering
+    const startDayOfWeek = firstDayOfMonth.getDay();
+    assignmentCounter = 0;
     let date = 1;
     const canAssign = membersToAssign && membersToAssign.length > 0;
     const hasPositions = positions && positions.length > 0;
 
-    // console.log(`Rendering calendar for ${year}-${month+1}`);
-    // console.log(`Using members: ${membersToAssign.join(', ')}`);
+    // Use the current month's special assignments from state
+    const currentMonthSpecialAssignments = specialAssignments;
 
-    for (let week = 0; week < 6; week++) { // Max 6 rows needed
+    for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
         for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
             const cell = document.createElement('td');
-            if (week === 0 && dayOfWeek < startDayOfWeek) {
-                cell.classList.add('other-month');
-            } else if (date > daysInMonth) {
-                cell.classList.add('other-month');
-            } else {
+            if (week === 0 && dayOfWeek < startDayOfWeek) { cell.classList.add('other-month'); }
+            else if (date > daysInMonth) { cell.classList.add('other-month'); }
+            else {
                 const currentCellDate = new Date(Date.UTC(year, month, date));
                 const currentCellDateStr = formatDateYYYYMMDD(currentCellDate);
 
@@ -122,24 +126,20 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 
                 if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
 
+                // --- Regular Assignments ---
                 if (canAssign && hasPositions && shouldAssignOnDate(dayOfWeek, currentCellDateStr)) {
                     cell.classList.add('assignment-day');
-
                     positions.forEach(position => {
                         let assignedMemberName = null;
                         let attempts = 0;
                         while (assignedMemberName === null && attempts < membersToAssign.length) {
                             const potentialMemberIndex = (assignmentCounter + attempts) % membersToAssign.length;
                             const potentialMemberName = membersToAssign[potentialMemberIndex];
-
                             if (!isMemberUnavailable(potentialMemberName, currentCellDateStr)) {
                                 assignedMemberName = potentialMemberName;
                                 assignmentCounter = (assignmentCounter + attempts + 1);
-                            } else {
-                                attempts++;
-                            }
+                            } else { attempts++; }
                         }
-
                         const assignmentDiv = document.createElement('div');
                         if (assignedMemberName) {
                             assignmentDiv.classList.add('assigned-position');
@@ -147,19 +147,30 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                         } else {
                             assignmentDiv.classList.add('assignment-skipped');
                             assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`;
-                            if (attempts === membersToAssign.length) {
-                                assignmentCounter++;
-                            }
+                            if (attempts === membersToAssign.length) { assignmentCounter++; }
                         }
                         cell.appendChild(assignmentDiv);
                     });
+                    if (membersToAssign.length > 0) { assignmentCounter %= membersToAssign.length; }
+                    else { assignmentCounter = 0; }
+                } // End Regular Assignments
 
-                    if (membersToAssign.length > 0) {
-                         assignmentCounter %= membersToAssign.length;
-                     } else {
-                         assignmentCounter = 0;
-                     }
-                }
+                // --- Special Assignments Display --- <<< ADDED >>>
+                const todaysSpecialAssignments = currentMonthSpecialAssignments.filter(
+                    sa => sa.date === currentCellDateStr
+                );
+                if (todaysSpecialAssignments.length > 0) {
+                     todaysSpecialAssignments.sort((a,b) => a.position.localeCompare(b.position)); // Sort for consistent display
+                     todaysSpecialAssignments.forEach(sa => {
+                         const specialDiv = document.createElement('div');
+                         specialDiv.classList.add('special-assignment');
+                         specialDiv.innerHTML = `<strong>${sa.position}:</strong> ${sa.member}`;
+                         cell.appendChild(specialDiv);
+                     });
+                     cell.classList.add('has-special-assignment');
+                 }
+                // --- End Special Assignments Display ---
+
                 date++;
             }
             row.appendChild(cell);
@@ -170,61 +181,39 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 }
 
 // --- Logout ---
- async function logout() {
-    try {
-        const response = await fetch('/logout', { method: 'POST' });
-        if (response.ok) {
-            window.location.href = '/login.html';
-        } else {
-             const result = await response.json();
-             alert(`Logout failed: ${result.message || 'Unknown error'}`);
-        }
-    } catch (error) {
-        console.error('Logout error:', error);
-        alert('Logout request failed. Check console.');
-    }
+ async function logout() { /* ... no change ... */
+    try { const response = await fetch('/logout', { method: 'POST' }); if (response.ok) { window.location.href = '/login.html'; } else { const result = await response.json(); alert(`Logout failed: ${result.message || 'Unknown error'}`); } } catch (error) { console.error('Logout error:', error); alert('Logout request failed. Check console.'); }
 }
 
 // --- Event Listeners ---
- prevMonthBtn.addEventListener('click', () => {
+ prevMonthBtn.addEventListener('click', async () => { // <<< UPDATED: Make async and call fetchData >>>
     currentDate.setMonth(currentDate.getMonth() - 1);
-    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-    // No need to re-render sidebar lists as they don't exist here
+    if (await fetchData()) { // Refetch data for the new month
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+    }
  });
- nextMonthBtn.addEventListener('click', () => {
+ nextMonthBtn.addEventListener('click', async () => { // <<< UPDATED: Make async and call fetchData >>>
     currentDate.setMonth(currentDate.getMonth() + 1);
-    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-     // No need to re-render sidebar lists as they don't exist here
+    if (await fetchData()) { // Refetch data for the new month
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+    }
  });
  logoutBtn.addEventListener('click', logout);
 
  // --- Theme Toggle ---
- function initializeTheme() {
-    const theme = localStorage.getItem('theme') || 'light';
-    document.documentElement.setAttribute('data-theme', theme);
-}
-
-function toggleTheme() {
-    const currentTheme = document.documentElement.getAttribute('data-theme');
-    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-}
-
-const themeToggleBtn = document.getElementById('theme-toggle');
-if (themeToggleBtn) {
-     themeToggleBtn.addEventListener('click', toggleTheme);
-} else {
-    console.warn("Theme toggle button not found in the DOM.");
-}
+ function initializeTheme() { /* ... no change ... */ }
+ function toggleTheme() { /* ... no change ... */ }
+ const themeToggleBtn = document.getElementById('theme-toggle');
+ if (themeToggleBtn) { themeToggleBtn.addEventListener('click', toggleTheme); }
+ else { console.warn("Theme toggle button not found in the DOM."); }
 
 // --- Initial Load ---
-async function initializeUserView() {
+async function initializeUserView() { // <<< UPDATED >>>
     console.log("Initializing User View...");
     initializeTheme(); // Set theme early
-    if(await fetchData()){ // Fetch all data needed for calendar rendering
+    if(await fetchData()){ // Initial fetch includes special assignments for current month
         console.log("Data fetch successful. Rendering calendar.");
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Then render calendar
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
     } else {
         console.error("Initialization failed due to data fetch error.");
         document.getElementById('scheduler').innerHTML = '<p style="color: red; padding: 20px;">Failed to load schedule data. Please try refreshing the page. Check console for details.</p>';

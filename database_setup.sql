@@ -26,16 +26,25 @@ CREATE TABLE IF NOT EXISTS unavailability (
     unavailable_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY unique_unavailability (member_name, unavailable_date) -- Prevent duplicates
-    -- Optional: Add FOREIGN KEY constraint if you prefer using member IDs
-    -- member_id INT,
-    -- FOREIGN KEY (member_id) REFERENCES team_members(id) ON DELETE CASCADE
 );
 
--- Create the override_assignment_days table  -- <<< ADDED THIS TABLE >>>
+-- Create the override_assignment_days table
 CREATE TABLE IF NOT EXISTS override_assignment_days (
     override_date DATE NOT NULL PRIMARY KEY, -- The specific date that acts as an override
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+-- <<< NEW TABLE for Special Assignments >>>
+-- Create the special_day_assignments table
+CREATE TABLE IF NOT EXISTS special_day_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    special_date DATE NOT NULL,
+    position_name VARCHAR(100) NOT NULL,
+    assigned_member_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_special_assignment (special_date, position_name) -- Prevent same position on same date
+);
+-- <<< END NEW TABLE >>>
 
 -- Create the users table for login
 CREATE TABLE IF NOT EXISTS users (
@@ -47,32 +56,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 -- --- Sample Data (IMPORTANT: Use secure passwords and hashing in real apps!) ---
-
--- Delete existing sample users first to avoid errors on re-run
-DELETE FROM users WHERE username IN ('admin_user', 'regular_user');
-
--- Insert sample admin user (Password: adminpass)
--- !! IMPORTANT !! In production, hash 'adminpass' using bcrypt *before* inserting!
--- Example: const hashedPassword = await bcrypt.hash('adminpass', 10);
--- Then insert the hashedPassword variable below instead of 'adminpass'.
-INSERT INTO users (username, password, role) VALUES
-('admin_user', 'adminpass', 'admin'); -- !! REPLACE 'adminpass' WITH HASHED PASSWORD !!
-
--- Insert sample regular user (Password: userpass)
--- !! IMPORTANT !! In production, hash 'userpass' using bcrypt *before* inserting!
--- Example: const hashedPassword = await bcrypt.hash('userpass', 10);
--- Then insert the hashedPassword variable below instead of 'userpass'.
-INSERT INTO users (username, password, role) VALUES
-('regular_user', 'userpass', 'user'); -- !! REPLACE 'userpass' WITH HASHED PASSWORD !!
-
--- Optional: Add some initial team members (Uncomment if needed)
--- INSERT INTO team_members (name) VALUES ('Alice'), ('Bob'), ('Charlie')
--- ON DUPLICATE KEY UPDATE name=name; -- Avoid error if they exist
-
--- Optional: Add some initial positions (Uncomment if needed)
--- INSERT INTO positions (name) VALUES ('Sound'), ('Media'), ('Live')
--- ON DUPLICATE KEY UPDATE name=name; -- Avoid error if they exist
-
--- Optional: Add some initial unavailability (Uncomment if needed)
--- INSERT INTO unavailability (member_name, unavailable_date) VALUES ('Bob', '2024-03-20')
--- ON DUPLICATE KEY UPDATE member_name=member_name;
+-- Insert sample users ONLY IF they don't exist and you've HASHED the passwords first.
+-- Example (replace hash):
+-- INSERT IGNORE INTO users (username, password, role) VALUES
+-- ('admin_user', '$2b$10$YourGeneratedHashForAdminPass', 'admin'),
+-- ('regular_user', '$2b$10$YourGeneratedHashForUserPass', 'user');
