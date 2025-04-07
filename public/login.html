@@ -5,21 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Scheduler Login</title>
     <link rel="stylesheet" href="style.css">
-    <style>
-        /* Login specific styles */
-        body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background-color: #f4f7f6;}
-        #login-container { background: white; padding: 30px 40px; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); width: 100%; max-width: 400px; text-align: center;}
-        #login-container h2 { margin-bottom: 25px; color: #1a535c; }
-        .form-group { margin-bottom: 20px; text-align: left; }
-        .form-group label { display: block; margin-bottom: 5px; font-weight: 500; color: #555;}
-        .form-group input { width: 100%; padding: 10px; border: 1px solid #ced4da; border-radius: 4px; font-size: 1em;}
-        #login-button { width: 100%; padding: 12px; background-color: #2a9d8f; color: white; border: none; border-radius: 4px; font-size: 1.1em; cursor: pointer; transition: background-color 0.2s ease; }
-        #login-button:hover { background-color: #268d80; }
-        #error-message { color: red; margin-top: 15px; min-height: 1em; font-size: 0.9em;}
-        .login-note { font-size: 0.8em; color: #6c757d; margin-top: 20px;}
-    </style>
+    <!-- REMOVED THE INLINE <style> BLOCK -->
 </head>
-<body>
+<body class="login-page"> <!-- Added class="login-page" -->
     <div id="login-container">
         <h2>Scheduler Login</h2>
         <form id="login-form">
@@ -36,6 +24,7 @@
         <div id="error-message"></div>
          <p class="login-note">Demo users:<br>admin: admin_user / adminpass<br>user: regular_user / userpass</p>
     </div>
+    <!-- Button remains here, CSS will position it -->
     <button id="theme-toggle">🌓 Toggle Theme</button>
     <script src="login.js"></script>
 </body>

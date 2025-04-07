@@ -9,7 +9,7 @@
 <body>
 
 <div id="scheduler">
-    <!-- Team Management Section -->
+    <!-- Team Management Section (no changes here) -->
     <div id="team-management">
         <h3>Team Members</h3>
         <div id="team-input-area">
@@ -18,17 +18,17 @@
         </div>
         <ul id="team-list"></ul>
 
-        <!-- Position Management Section -->
+        <!-- Position Management Section (no changes here) -->
         <div id="position-management-section">
-            <h4>Manage Positions</h4>
-            <div id="position-input-area">
-                <input type="text" id="positionNameInput" placeholder="Enter position name">
-                <button id="addPositionBtn">Add Position</button>
-            </div>
-            <ul id="position-list"></ul>
-        </div>
+             <h4>Manage Positions</h4>
+             <div id="position-input-area">
+                 <input type="text" id="positionNameInput" placeholder="Enter position name">
+                 <button id="addPositionBtn">Add Position</button>
+             </div>
+             <ul id="position-list"></ul>
+         </div>
 
-        <!-- Unavailability Section -->
+        <!-- Unavailability Section (no changes here) -->
         <div id="unavailability-section">
             <h4>Member Unavailability</h4>
             <div id="unavailability-input-area">
@@ -47,7 +47,7 @@
             <ul id="unavailable-list"></ul>
         </div>
 
-        <!-- Override Assignment Days Section -->
+        <!-- Override Assignment Days Section (no changes here) -->
         <div id="override-days-section">
              <h4>Override Assignment Days</h4>
              <div id="override-day-input-area">
@@ -64,7 +64,7 @@
 
     <!-- Calendar Section -->
     <div id="calendar-view">
-         <div id="calendar-header">
+         <div id="calendar-header"> <!-- Button moved inside here -->
              <div id="calendar-nav-buttons">
                  <button id="prevMonthBtn">< Prev</button>
                  <button id="nextMonthBtn">Next ></button>
@@ -72,6 +72,7 @@
             <h2 id="monthYearHeader">Month Year</h2>
             <button id="randomizeBtn">Randomize Assignments</button>
             <button id="logoutBtn">Logout</button>
+            <button id="theme-toggle">🌓 Toggle Theme</button> <!-- MOVED HERE -->
         </div>
         <table id="calendar">
             <thead>
@@ -83,6 +84,6 @@
 </div>
 
 <script src="admin.js"></script>
-<button id="theme-toggle">🌓 Toggle Theme</button>
+<!-- REMOVED BUTTON FROM HERE -->
 </body>
 </html>
