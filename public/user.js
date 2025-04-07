@@ -155,4 +155,21 @@ async function initializeUserView() {
     }
 }
 
+// Theme Toggle functionality
+function initializeTheme() {
+    const theme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', theme);
+}
+
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+}
+
+// Add event listener for theme toggle
+document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
+initializeTheme();
+
 initializeUserView();
