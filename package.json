@@ -9,7 +9,7 @@
       "test": "echo \"Error: no test specified\" && exit 1"
     },
     "dependencies": {
-      "bcrypt": "^5.1.1",         # <<< CONFIRMED: bcrypt is listed here
+      "bcrypt": "^5.1.1",       
       "express": "^4.18.2",
       "express-session": "^1.17.3",
       "mysql2": "^3.6.5"
