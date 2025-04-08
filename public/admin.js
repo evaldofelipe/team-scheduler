@@ -391,7 +391,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                 smallRandomizeBtn.title = 'Randomize this day';
                 smallRandomizeBtn.textContent = '🎲';
                 smallRandomizeBtn.onclick = (e) => {
-                    e.preventDefault(); // Prevent form submission if inside a form
+                    e.preventDefault();
                     
                     if (teamMembers.length > 0) {
                         let shuffledMembers = [...teamMembers];
@@ -401,7 +401,18 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                         const assignmentDivs = cell.querySelectorAll('.assigned-position');
                         assignmentDivs.forEach(div => {
                             if (!holdCheckbox.checked) { // Only randomize if not held
-                                const position = div.querySelector('strong').textContent;
+                                // Fix position name extraction to remove the colon
+                                const positionText = div.querySelector('strong').textContent;
+                                const positionName = positionText.replace(':', '').trim();
+                                const positionInfo = positions.find(p => 
+                                    p.name.toLowerCase() === positionName.toLowerCase()
+                                );
+                                
+                                if (!positionInfo) {
+                                    console.error(`Position not found: "${positionName}" (Available positions: ${positions.map(p => p.name).join(', ')})`);
+                                    return;
+                                }
+
                                 let assigned = false;
                                 let attempts = 0;
                                 
@@ -409,8 +420,10 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                                     const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
                                     const memberName = shuffledMembers[memberIndex];
                                     
-                                    if (!isMemberUnavailable(memberName, currentCellDateStr)) {
-                                        div.innerHTML = `<strong>${position}</strong>: ${memberName}`;
+                                    // Check both unavailability AND position qualification
+                                    if (!isMemberUnavailable(memberName, currentCellDateStr) && 
+                                        isMemberQualified(memberName, positionInfo.id)) {
+                                        div.innerHTML = `<strong>${positionInfo.name}</strong>: ${memberName}`;
                                         assigned = true;
                                         assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
                                     }
@@ -418,7 +431,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                                 }
                                 
                                 if (!assigned) {
-                                    div.innerHTML = `<strong>${position}</strong>: (Unavailable)`;
+                                    div.innerHTML = `<strong>${positionInfo.name}</strong>: (No qualified member available)`;
                                     assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
                                 }
                             }
