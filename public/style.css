@@ -469,21 +469,300 @@ input:focus, select:focus {
 
 /* --- Responsive Adjustments --- */
 @media (max-width: 800px) {
-    body { display: block; } /* Allow scrolling */
-    #scheduler { flex-direction: column; height: auto; min-height: 100%; padding: 15px; gap: 20px; }
-    #team-management { flex-basis: auto; flex-shrink: 0; min-width: unset; max-width: 100%; border-right: none; padding-right: 0; border-bottom: 1px solid var(--border-color); padding-bottom: 20px; }
-    #team-list { max-height: 200px; min-height: 100px; flex-grow: 0; }
-    #unavailability-section, #position-management-section, #override-days-section, #user-management-section { margin-top: 20px; } /* Added user management */
-    #unavailable-list, #position-list, #override-days-list { max-height: 120px; }
-    #calendar td { height: 100px; font-size: 0.85em; }
-    .date-number { font-size: 0.8em; }
-    .assigned-position { font-size: 0.8em; }
-    #calendar-header { justify-content: center; } /* Center items more on mobile */
-    #calendar-header h2 { order: 1; flex-grow: 0; width: 100%; text-align: center; margin-bottom: 10px;} /* Title first */
-    #calendar-nav-buttons { order: 2; } /* Nav second */
-    #randomizeBtn { order: 3; }
-    #logoutBtn { order: 4; margin-left: 10px; } /* Keep logout spaced */
-    #theme-toggle { order: 5; }
+    body { 
+        display: block; 
+        padding: 0;
+        margin: 0;
+    }
+    
+    #scheduler { 
+        flex-direction: column; 
+        height: auto; 
+        min-height: 100%; 
+        padding: 10px; 
+        gap: 15px; 
+    }
+    
+    #team-management { 
+        flex-basis: auto; 
+        flex-shrink: 0; 
+        min-width: unset; 
+        max-width: 100%; 
+        border-right: none; 
+        padding-right: 0; 
+        border-bottom: 1px solid var(--border-color); 
+        padding-bottom: 15px; 
+    }
+
+    /* Improve form inputs on mobile */
+    input[type="text"], 
+    input[type="password"], 
+    input[type="date"], 
+    select {
+        font-size: 16px; /* Prevent iOS zoom on focus */
+        padding: 8px 10px;
+    }
+
+    /* Adjust button sizes for touch */
+    button {
+        padding: 8px 12px;
+        min-height: 44px; /* Better touch targets */
+        font-size: 16px;
+    }
+
+    /* Calendar adjustments */
+    #calendar {
+        font-size: 14px;
+        width: 100%;
+        overflow-x: auto;
+    }
+
+    #calendar td {
+        min-height: 80px;
+        padding: 4px;
+        font-size: 12px;
+    }
+
+    #calendar th {
+        padding: 8px 4px;
+        font-size: 12px;
+    }
+
+    .date-number {
+        font-size: 12px;
+        top: 2px;
+        right: 4px;
+    }
+
+    .assigned-position {
+        font-size: 11px;
+        margin-top: 2px;
+        line-height: 1.3;
+    }
+
+    .assigned-position strong {
+        min-width: 35px;
+    }
+
+    /* Improve header layout */
+    #calendar-header {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 0;
+        margin-bottom: 15px;
+    }
+
+    #calendar-header h2 {
+        width: 100%;
+        font-size: 1.3em;
+        margin: 5px 0;
+    }
+
+    #calendar-nav-buttons {
+        gap: 4px;
+    }
+
+    /* Improve list views */
+    #team-list, 
+    #unavailable-list, 
+    #position-list, 
+    #override-days-list {
+        max-height: 150px;
+        font-size: 14px;
+    }
+
+    /* Improve form sections spacing */
+    .form-group {
+        margin-bottom: 15px;
+    }
+
+    /* Position management improvements */
+    .position-config {
+        margin-left: 5px;
+    }
+
+    .allowed-days-group {
+        gap: 8px;
+        padding-left: 10px;
+    }
+
+    .allowed-days-group label {
+        min-width: 60px;
+    }
+
+    /* Member positions display */
+    .member-positions {
+        flex-wrap: wrap;
+        gap: 6px;
+        padding-left: 10px;
+    }
+
+    .position-checkbox {
+        padding: 4px;
+        font-size: 12px;
+    }
+
+    /* Hold container adjustments */
+    .hold-container {
+        bottom: 2px;
+        left: 4px;
+        font-size: 10px;
+    }
+
+    .hold-checkbox {
+        width: 12px;
+        height: 12px;
+    }
+
+    .small-randomize-btn {
+        padding: 2px;
+    }
+
+    /* Improve feedback messages */
+    .feedback-message {
+        font-size: 14px;
+        padding: 8px;
+    }
+}
+
+/* Extra small devices */
+@media (max-width: 480px) {
+    #scheduler {
+        padding: 5px;
+    }
+
+    /* Further reduce sizes */
+    #calendar td {
+        min-height: 70px;
+        padding: 2px;
+        font-size: 11px;
+    }
+
+    .assigned-position {
+        font-size: 10px;
+        margin-top: 1px;
+    }
+
+    /* Stack header buttons */
+    #calendar-header {
+        justify-content: center;
+    }
+
+    #calendar-header button {
+        font-size: 14px;
+        padding: 6px 10px;
+    }
+
+    /* Improve form layouts */
+    #unavailability-input-area,
+    #special-assignment-input-area {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    #unavailability-input-area > div,
+    #special-assignment-input-area > div {
+        width: 100%;
+    }
+
+    /* Adjust position management */
+    .position-actions {
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    /* Make sure buttons are easy to tap */
+    button {
+        min-width: 44px;
+    }
+
+    /* Hide the regular calendar table */
+    #calendar {
+        display: none;
+    }
+
+    /* Create a new mobile calendar list view */
+    #calendar-body-mobile {
+        display: block !important; /* Show on mobile */
+        list-style: none;
+        padding: 0;
+        margin: 0;
+    }
+
+    .mobile-day {
+        background: var(--calendar-cell-bg);
+        border: 1px solid var(--border-color);
+        margin-bottom: 8px;
+        border-radius: 4px;
+        overflow: hidden;
+    }
+
+    .mobile-day-header {
+        background: var(--calendar-header-bg);
+        padding: 8px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .mobile-date {
+        font-weight: bold;
+        color: var(--text-primary);
+    }
+
+    .mobile-day-content {
+        padding: 8px;
+    }
+
+    .mobile-day.weekend {
+        background: var(--calendar-assignment-bg);
+    }
+
+    .mobile-day.other-month {
+        opacity: 0.7;
+    }
+
+    /* Adjust assignment display for mobile */
+    .mobile-day .assigned-position {
+        font-size: 14px;
+        margin: 4px 0;
+        white-space: normal;
+        line-height: 1.4;
+    }
+
+    .mobile-day .hold-container {
+        position: static;
+        margin-top: 8px;
+        padding-top: 8px;
+        border-top: 1px solid var(--border-color);
+        font-size: 12px;
+    }
+
+    /* Hide the small randomize button on mobile days */
+    .mobile-day .small-randomize-btn {
+        display: none;
+    }
+}
+
+/* Landscape mode adjustments */
+@media (max-width: 800px) and (orientation: landscape) {
+    #scheduler {
+        flex-direction: row;
+        gap: 10px;
+    }
+
+    #team-management {
+        width: 40%;
+        border-right: 1px solid var(--border-color);
+        border-bottom: none;
+        padding-right: 10px;
+        padding-bottom: 0;
+    }
+
+    #calendar-view {
+        width: 60%;
+    }
 }
 
 /* --- Login Page Styles (Now using variables) --- */

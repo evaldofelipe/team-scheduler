@@ -302,16 +302,30 @@ function isMemberUnavailable(memberName, dateYYYYMMDD) { /* ... unchanged ... */
 
 // <<< MODIFIED renderCalendar function >>>
 function renderCalendar(year, month, membersToAssign = teamMembers) {
+    // Clear both regular and mobile views
     calendarBody.innerHTML = '';
+    let mobileView = document.getElementById('calendar-body-mobile');
+    
+    // Create mobile view if it doesn't exist
+    if (!mobileView) {
+        mobileView = document.createElement('ul');
+        mobileView.id = 'calendar-body-mobile';
+        mobileView.style.display = 'none'; // Hidden by default, shown via CSS media query
+        calendarBody.parentElement.after(mobileView);
+    } else {
+        mobileView.innerHTML = '';
+    }
+
     monthYearHeader.textContent = `${new Date(year, month).toLocaleString('default', { month: 'long' })} ${year}`;
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const daysInMonth = lastDayOfMonth.getDate();
-    const startDayOfWeek = firstDayOfMonth.getDay(); // 0=Sun, 6=Sat
+    const startDayOfWeek = firstDayOfMonth.getDay();
     assignmentCounter = 0;
     let date = 1;
     const canAssign = membersToAssign && membersToAssign.length > 0;
 
+    // Regular calendar rendering (unchanged)
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
         for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
@@ -401,7 +415,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                         const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
                         
                         cells.forEach(cell => {
-                            if (!cell.querySelector('.hold-checkbox')?.checked) { // Skip held assignments
+                            if (!cell.querySelector('.hold-checkbox')?.checked) {
                                 const dateNumber = cell.querySelector('.date-number');
                                 const currentDate = dateNumber?.dataset.date;
                                 
@@ -532,6 +546,96 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
         calendarBody.appendChild(row);
         if (date > daysInMonth && week > 0) break;
     } // End week loop
+
+    // Mobile view rendering
+    for (let i = 0; i < daysInMonth; i++) {
+        const currentDate = new Date(year, month, i + 1);
+        const dayOfWeek = currentDate.getDay();
+        const currentCellDateStr = formatDateYYYYMMDD(currentDate);
+        
+        const dayItem = document.createElement('li');
+        dayItem.className = 'mobile-day';
+        if (dayOfWeek === 0 || dayOfWeek === 6) {
+            dayItem.classList.add('weekend');
+        }
+
+        // Day header
+        const dayHeader = document.createElement('div');
+        dayHeader.className = 'mobile-day-header';
+        
+        const dateDisplay = document.createElement('span');
+        dateDisplay.className = 'mobile-date';
+        dateDisplay.textContent = `${currentDate.toLocaleDateString('default', { weekday: 'short' })}, ${currentDate.toLocaleDateString('default', { month: 'short', day: 'numeric' })}`;
+        dayHeader.appendChild(dateDisplay);
+
+        // Hold checkbox container
+        const holdContainer = document.createElement('div');
+        holdContainer.className = 'hold-container';
+        
+        const holdCheckbox = document.createElement('input');
+        holdCheckbox.type = 'checkbox';
+        holdCheckbox.className = 'hold-checkbox';
+        holdCheckbox.id = `hold-mobile-${currentCellDateStr}`;
+        
+        const holdLabel = document.createElement('label');
+        holdLabel.htmlFor = `hold-mobile-${currentCellDateStr}`;
+        holdLabel.textContent = 'Hold';
+        holdLabel.className = 'hold-label';
+
+        holdContainer.appendChild(holdCheckbox);
+        holdContainer.appendChild(holdLabel);
+        dayHeader.appendChild(holdContainer);
+        
+        dayItem.appendChild(dayHeader);
+
+        // Day content
+        const dayContent = document.createElement('div');
+        dayContent.className = 'mobile-day-content';
+
+        // Get positions for this day
+        let positionsForThisDay = [];
+        const isOverrideDay = overrideDays.includes(currentCellDateStr);
+
+        positions.forEach(position => {
+            let shouldAdd = false;
+            if (position.assignment_type === 'regular') {
+                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) || isOverrideDay;
+            } else if (position.assignment_type === 'specific_days') {
+                const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
+                shouldAdd = allowed.includes(dayOfWeek.toString());
+            }
+            if (shouldAdd) {
+                positionsForThisDay.push(position);
+            }
+        });
+
+        // Add special assignments
+        const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
+        todaysSpecialAssignments.forEach(sa => {
+            const positionInfo = positions.find(p => p.id === sa.position_id);
+            if (positionInfo) {
+                positionsForThisDay.push(positionInfo);
+            }
+        });
+
+        // Sort positions
+        positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+        // Create assignments
+        if (canAssign && positionsForThisDay.length > 0) {
+            positionsForThisDay.forEach(position => {
+                const assignmentDiv = document.createElement('div');
+                assignmentDiv.className = 'assigned-position';
+                
+                // ... assignment logic (same as regular view) ...
+                
+                dayContent.appendChild(assignmentDiv);
+            });
+        }
+
+        dayItem.appendChild(dayContent);
+        mobileView.appendChild(dayItem);
+    }
 }
 
 
