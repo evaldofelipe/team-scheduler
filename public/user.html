@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Team Schedule</title>
+    <title>Agenda da Equipe</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,16 +11,16 @@
     <div id="calendar-view">
          <div id="calendar-header">
              <div id="calendar-nav-buttons">
-                 <button id="prevMonthBtn">< Prev</button>
-                 <button id="nextMonthBtn">Next ></button>
+                 <button id="prevMonthBtn"></button>
+                 <button id="nextMonthBtn"></button>
              </div>
-            <h2 id="monthYearHeader">Month Year</h2>
-            <button id="adminLoginBtn" onclick="window.location.href='/login.html'">Admin Login</button>
+            <h2 id="monthYearHeader">Mês Ano</h2>
+            <button id="adminLoginBtn" onclick="window.location.href='/login.html'">Login Admin</button>
             <button id="theme-toggle">🌓 Toggle Theme</button>
         </div>
         <table id="calendar">
             <thead>
-                <tr><th>Sun</th><th>Mon</th><th>Tue</th><th>Wed</th><th>Thu</th><th>Fri</th><th>Sat</th></tr>
+                <tr><th>Dom</th><th>Seg</th><th>Ter</th><th>Qua</th><th>Qui</th><th>Sex</th><th>Sáb</th></tr>
             </thead>
             <tbody id="calendar-body"></tbody>
         </table>
