@@ -101,3 +101,8 @@ INSERT INTO users (username, password, role) VALUES
 -- Optional: Add some initial unavailability (Uncomment if needed)
 -- INSERT INTO unavailability (member_name, unavailable_date) VALUES ('Bob', '2024-03-20')
 -- ON DUPLICATE KEY UPDATE member_name=member_name;
+
+-- Add new columns to existing positions table if they don't exist
+ALTER TABLE positions
+ADD COLUMN IF NOT EXISTS assignment_type ENUM('regular', 'specific_days') NOT NULL DEFAULT 'regular',
+ADD COLUMN IF NOT EXISTS allowed_days VARCHAR(15) NULL DEFAULT NULL;
