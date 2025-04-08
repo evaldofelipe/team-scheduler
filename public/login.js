@@ -2,18 +2,35 @@
 function initializeTheme() {
     const theme = localStorage.getItem('theme') || 'light';
     document.documentElement.setAttribute('data-theme', theme);
+    
+    // Update button text/icon based on current theme
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    if (themeToggleBtn) {
+        themeToggleBtn.textContent = theme === 'light' ? '🌙' : '☀️';
+    }
 }
 
 function toggleTheme() {
     const currentTheme = document.documentElement.getAttribute('data-theme');
     const newTheme = currentTheme === 'light' ? 'dark' : 'light';
+    
+    // Update theme
     document.documentElement.setAttribute('data-theme', newTheme);
     localStorage.setItem('theme', newTheme);
+    
+    // Update button text/icon
+    const themeToggleBtn = document.getElementById('theme-toggle');
+    if (themeToggleBtn) {
+        themeToggleBtn.textContent = newTheme === 'light' ? '🌙' : '☀️';
+    }
 }
 
+// Add theme toggle event listener
 const themeToggleBtn = document.getElementById('theme-toggle');
 if (themeToggleBtn) {
     themeToggleBtn.addEventListener('click', toggleTheme);
+} else {
+    console.warn("Theme toggle button not found in the DOM.");
 }
 initializeTheme(); // Initialize theme on load
 
