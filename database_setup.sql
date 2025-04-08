@@ -103,6 +103,4 @@ INSERT INTO users (username, password, role) VALUES
 -- ON DUPLICATE KEY UPDATE member_name=member_name;
 
 -- Add new columns to existing positions table if they don't exist
-ALTER TABLE positions
-ADD COLUMN IF NOT EXISTS assignment_type ENUM('regular', 'specific_days') NOT NULL DEFAULT 'regular',
-ADD COLUMN IF NOT EXISTS allowed_days VARCHAR(15) NULL DEFAULT NULL;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS assignment_type ENUM('regular', 'specific_days') NOT NULL DEFAULT 'regular', ADD COLUMN IF NOT EXISTS allowed_days VARCHAR(15) NULL DEFAULT NULL;
