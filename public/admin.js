@@ -856,66 +856,117 @@ async function logout() { /* ... */ }
 // --- Event Listeners ---
 prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); });
 nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); });
+
+// Add this helper function to check if two weeks have the same assignment pattern
+function areWeeksIdentical(week1Assignments, week2Assignments) {
+    if (week1Assignments.length !== week2Assignments.length) return false;
+    
+    for (let i = 0; i < week1Assignments.length; i++) {
+        if (week1Assignments[i].member !== week2Assignments[i].member ||
+            week1Assignments[i].position !== week2Assignments[i].position) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Add this helper to get assignments for a week
+function getWeekAssignments(cells, startIndex) {
+    const weekAssignments = [];
+    for (let i = startIndex; i < startIndex + 7 && i < cells.length; i++) {
+        const cell = cells[i];
+        const assignments = Array.from(cell.querySelectorAll('.assigned-position')).map(div => ({
+            position: div.querySelector('strong').textContent.replace(':', '').trim(),
+            member: div.textContent.split(':')[1].trim()
+        }));
+        weekAssignments.push(...assignments);
+    }
+    return weekAssignments;
+}
+
+// Modify the randomize button handler
 randomizeBtn.addEventListener('click', () => {
     if (teamMembers.length > 0) {
-        // Store current held assignments before rendering
         const currentHeldAssignments = new Map(heldDays);
+        let maxAttempts = 10; // Maximum attempts to get a good randomization
+        let validRandomization = false;
         
-        let shuffledMembers = [...teamMembers];
-        shuffleArray(shuffledMembers);
-        
-        // Get all calendar cells that have assignments
-        const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
-        
-        cells.forEach(cell => {
-            if (!cell.querySelector('.hold-checkbox')?.checked) { // Skip held assignments
-                const dateNumber = cell.querySelector('.date-number');
-                const currentDate = dateNumber?.dataset.date;
-                
-                if (currentDate) {
-                    const assignmentDivs = cell.querySelectorAll('.assigned-position');
-                    assignmentDivs.forEach(div => {
-                        const positionName = div.querySelector('strong').textContent.replace(':', '').trim();
-                        const positionInfo = positions.find(p => p.name.toLowerCase() === positionName.toLowerCase());
-                        
-                        if (!positionInfo) {
-                            console.error(`Position not found: "${positionName}"`);
-                            return;
-                        }
-
-                        // Find an available member for this position
-                        let assigned = false;
-                        let attempts = 0;
-                        const maxAttempts = shuffledMembers.length;
-
-                        while (!assigned && attempts < maxAttempts) {
-                            const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
-                            const memberName = shuffledMembers[memberIndex];
+        while (!validRandomization && maxAttempts > 0) {
+            let shuffledMembers = [...teamMembers];
+            shuffleArray(shuffledMembers);
+            assignmentCounter = 0; // Reset counter for each attempt
+            
+            // Get all calendar cells that have assignments
+            const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
+            
+            // First pass: Do the randomization
+            cells.forEach(cell => {
+                if (!cell.querySelector('.hold-checkbox')?.checked) {
+                    const dateNumber = cell.querySelector('.date-number');
+                    const currentDate = dateNumber?.dataset.date;
+                    
+                    if (currentDate) {
+                        const assignmentDivs = cell.querySelectorAll('.assigned-position');
+                        assignmentDivs.forEach(div => {
+                            const positionName = div.querySelector('strong').textContent.replace(':', '').trim();
+                            const positionInfo = positions.find(p => p.name.toLowerCase() === positionName.toLowerCase());
                             
-                            // Check both unavailability AND position qualification
-                            if (!isMemberUnavailable(memberName, currentDate) && 
-                                isMemberQualified(memberName, positionInfo.id)) {
-                                div.innerHTML = `<strong>${positionInfo.name}</strong>: ${memberName}`;
-                                assigned = true;
-                                assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
+                            if (!positionInfo) {
+                                console.error(`Position not found: "${positionName}"`);
+                                return;
                             }
-                            attempts++;
-                        }
-                        
-                        if (!assigned) {
-                            div.innerHTML = `<strong>${positionInfo.name}</strong>: (No qualified member available)`;
-                            assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
-                        }
-                    });
+
+                            let assigned = false;
+                            let attempts = 0;
+                            const memberAttempts = shuffledMembers.length;
+
+                            while (!assigned && attempts < memberAttempts) {
+                                const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
+                                const memberName = shuffledMembers[memberIndex];
+                                
+                                if (!isMemberUnavailable(memberName, currentDate) && 
+                                    isMemberQualified(memberName, positionInfo.id)) {
+                                    div.innerHTML = `<strong>${positionInfo.name}</strong>: ${memberName}`;
+                                    assigned = true;
+                                    assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
+                                }
+                                attempts++;
+                            }
+                            
+                            if (!assigned) {
+                                div.innerHTML = `<strong>${positionInfo.name}</strong>: (No qualified member available)`;
+                                assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
+                            }
+                        });
+                    }
+                }
+            });
+
+            // Second pass: Check for consecutive identical weeks
+            let hasIdenticalConsecutiveWeeks = false;
+            for (let i = 0; i < cells.length - 14; i += 7) {
+                const week1 = getWeekAssignments(cells, i);
+                const week2 = getWeekAssignments(cells, i + 7);
+                
+                if (week1.length > 0 && areWeeksIdentical(week1, week2)) {
+                    hasIdenticalConsecutiveWeeks = true;
+                    break;
                 }
             }
-        });
+
+            validRandomization = !hasIdenticalConsecutiveWeeks;
+            maxAttempts--;
+
+            if (!validRandomization && maxAttempts > 0) {
+                // Reset assignmentCounter for next attempt
+                assignmentCounter = 0;
+            }
+        }
 
         // Restore held assignments
         currentHeldAssignments.forEach((assignments, dateStr) => {
             const cell = document.querySelector(`td .date-number[data-date="${dateStr}"]`)?.parentElement;
             if (cell) {
-                // Restore assignments
                 assignments.forEach(({ position_name, member_name }) => {
                     const assignmentDivs = cell.querySelectorAll('.assigned-position');
                     for (const div of assignmentDivs) {
@@ -926,13 +977,16 @@ randomizeBtn.addEventListener('click', () => {
                     }
                 });
 
-                // Make sure to update the checkbox
                 const checkbox = cell.querySelector('.hold-checkbox');
                 if (checkbox) {
                     checkbox.checked = true;
                 }
             }
         });
+
+        if (maxAttempts === 0) {
+            console.warn('Could not find a completely unique pattern after maximum attempts');
+        }
     } else {
         alert("Add team members first.");
     }
