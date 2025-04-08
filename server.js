@@ -397,3 +397,68 @@ app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     pool.query('SELECT 1').then(() => console.log('Database connection successful.')).catch(err => console.error('Database connection failed:', err));
 });
+
+// Add these new API endpoints
+
+// Get all held assignments
+app.get('/api/held-assignments', requireLogin(), async (req, res) => {
+    try {
+        const [assignments] = await pool.query(
+            'SELECT * FROM held_assignments ORDER BY assignment_date'
+        );
+        res.json(assignments);
+    } catch (error) {
+        console.error('Error fetching held assignments:', error);
+        res.status(500).send('Server error fetching held assignments.');
+    }
+});
+
+// Save held assignments
+app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => {
+    const { assignments } = req.body; // Array of {date, position_name, member_name}
+    const connection = await pool.getConnection();
+    
+    try {
+        await connection.beginTransaction();
+        
+        // Clear existing held assignments for the dates we're updating
+        const dates = [...new Set(assignments.map(a => a.date))];
+        if (dates.length > 0) {
+            await connection.query(
+                'DELETE FROM held_assignments WHERE assignment_date IN (?)',
+                [dates]
+            );
+        }
+        
+        // Insert new held assignments
+        if (assignments.length > 0) {
+            const values = assignments.map(a => [a.date, a.position_name, a.member_name]);
+            await connection.query(
+                'INSERT INTO held_assignments (assignment_date, position_name, member_name) VALUES ?',
+                [values]
+            );
+        }
+        
+        await connection.commit();
+        res.json({ success: true });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error saving held assignments:', error);
+        res.status(500).send('Server error saving held assignments.');
+    } finally {
+        connection.release();
+    }
+});
+
+// Delete held assignments for a specific date
+app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res) => {
+    const { date } = req.params;
+    
+    try {
+        await pool.query('DELETE FROM held_assignments WHERE assignment_date = ?', [date]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting held assignments:', error);
+        res.status(500).send('Server error deleting held assignments.');
+    }
+});

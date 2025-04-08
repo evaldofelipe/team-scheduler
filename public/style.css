@@ -350,6 +350,8 @@ body {
     font-size: 0.9em;
     overflow: hidden;
     transition: background-color 0.3s ease, border-color 0.3s ease;
+    padding-bottom: 25px; /* Add padding at bottom for hold checkbox */
+    min-height: 120px; /* Ensure minimum height for content */
 }
 
 #calendar td.other-month {
@@ -393,7 +395,7 @@ body {
     white-space: nowrap;
     transition: color 0.3s ease;
 }
-.assigned-position:first-of-type { margin-top: 22px; } /* Space below date number */
+.assigned-position:first-of-type { margin-top: 22px; } /* Back to original value */
 
 .assigned-position strong {
     color: var(--link-color); /* Use link color for position name */
@@ -596,4 +598,86 @@ body.login-page #theme-toggle {
 
 .position-checkbox input[type="checkbox"] {
     margin: 0;
+}
+
+/* Update the hold container styles */
+.hold-container {
+    position: absolute;
+    bottom: 4px;
+    left: 6px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.8em;
+    z-index: 1;
+    background-color: var(--calendar-cell-bg);
+    padding: 2px 4px;
+}
+
+.hold-checkbox {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.hold-label {
+    color: var(--text-secondary);
+    cursor: pointer;
+    user-select: none;
+}
+
+/* Adjust the date-number positioning to not conflict */
+.date-number {
+    right: 6px; /* Keep right-aligned */
+}
+
+/* Remove the top margin adjustment for first assignment since hold is now at bottom */
+.assigned-position:first-of-type {
+    margin-top: 22px; /* Back to original value */
+}
+
+/* Add margin to last assignment to prevent overlap with hold checkbox */
+.assigned-position:last-of-type,
+.assignment-skipped:last-of-type {
+    margin-bottom: 20px;
+}
+
+/* Add styles for the new buttons */
+#saveHoldsBtn {
+    background-color: var(--button-warn-bg);
+    color: var(--button-warn-text);
+    border-color: var(--button-warn-border);
+}
+
+#saveHoldsBtn:hover {
+    background-color: var(--button-warn-hover-bg);
+}
+
+#clearHoldsBtn {
+    background-color: var(--button-default-bg);
+    color: var(--button-default-text);
+    border-color: var(--button-default-border);
+}
+
+#clearHoldsBtn:hover {
+    background-color: var(--button-hover-bg);
+}
+
+/* Add styles for the small randomize button */
+.small-randomize-btn {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 1em;
+    display: flex;
+    align-items: center;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.small-randomize-btn:hover {
+    opacity: 1;
+    background: none;
 }

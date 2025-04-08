@@ -71,6 +71,16 @@ CREATE TABLE IF NOT EXISTS member_positions (
     FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
 );
 
+-- Add new table for held assignments
+CREATE TABLE IF NOT EXISTS held_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    assignment_date DATE NOT NULL,
+    position_name VARCHAR(100) NOT NULL,
+    member_name VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_held_assignment (assignment_date, position_name)
+);
+
 -- --- Sample Data (IMPORTANT: Use secure passwords and hashing in real apps!) ---
 
 -- Delete existing sample users first to avoid errors on re-run

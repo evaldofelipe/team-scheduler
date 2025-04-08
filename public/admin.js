@@ -45,6 +45,7 @@ let overrideDays = [];
 let specialAssignments = [];
 let assignmentCounter = 0;
 let memberPositions = new Map(); // Store member position assignments
+let heldDays = new Map(); // Still use Map for temporary storage
 
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
@@ -319,11 +320,121 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                 cell.classList.add('other-month');
             } else {
                 const currentCellDate = new Date(Date.UTC(year, month, date));
-                const currentCellDateStr = formatDateYYYYMMDD(currentCellDate); // YYYY-MM-DD format
+                const currentCellDateStr = formatDateYYYYMMDD(currentCellDate);
+
+                // Add hold checkbox container
+                const holdContainer = document.createElement('div');
+                holdContainer.className = 'hold-container';
+                
+                const holdCheckbox = document.createElement('input');
+                holdCheckbox.type = 'checkbox';
+                holdCheckbox.className = 'hold-checkbox';
+                holdCheckbox.id = `hold-${currentCellDateStr}`;
+                holdCheckbox.addEventListener('change', async (e) => {
+                    if (e.target.checked) {
+                        const assignments = Array.from(cell.querySelectorAll('.assigned-position')).map(div => {
+                            const positionName = div.querySelector('strong').textContent;
+                            const memberName = div.textContent.split(':')[1].trim();
+                            return {
+                                date: currentCellDateStr,
+                                position_name: positionName,
+                                member_name: memberName
+                            };
+                        });
+                        
+                        try {
+                            const response = await fetch('/api/held-assignments', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ assignments })
+                            });
+                            
+                            if (response.ok) {
+                                heldDays.set(currentCellDateStr, assignments);
+                            } else {
+                                e.target.checked = false;
+                                alert('Failed to save held assignments');
+                            }
+                        } catch (error) {
+                            console.error('Error saving held assignments:', error);
+                            e.target.checked = false;
+                            alert('Error saving held assignments');
+                        }
+                    } else {
+                        try {
+                            const response = await fetch(`/api/held-assignments/${currentCellDateStr}`, {
+                                method: 'DELETE'
+                            });
+                            
+                            if (response.ok) {
+                                heldDays.delete(currentCellDateStr);
+                            } else {
+                                e.target.checked = true;
+                                alert('Failed to remove held assignments');
+                            }
+                        } catch (error) {
+                            console.error('Error removing held assignments:', error);
+                            e.target.checked = true;
+                            alert('Error removing held assignments');
+                        }
+                    }
+                });
+
+                const holdLabel = document.createElement('label');
+                holdLabel.htmlFor = `hold-${currentCellDateStr}`;
+                holdLabel.textContent = 'Hold';
+                holdLabel.className = 'hold-label';
+
+                // Add small randomize button
+                const smallRandomizeBtn = document.createElement('button');
+                smallRandomizeBtn.className = 'small-randomize-btn';
+                smallRandomizeBtn.title = 'Randomize this day';
+                smallRandomizeBtn.textContent = '🎲';
+                smallRandomizeBtn.onclick = (e) => {
+                    e.preventDefault(); // Prevent form submission if inside a form
+                    
+                    if (teamMembers.length > 0) {
+                        let shuffledMembers = [...teamMembers];
+                        shuffleArray(shuffledMembers);
+                        
+                        // Only re-render assignments for this specific day
+                        const assignmentDivs = cell.querySelectorAll('.assigned-position');
+                        assignmentDivs.forEach(div => {
+                            if (!holdCheckbox.checked) { // Only randomize if not held
+                                const position = div.querySelector('strong').textContent;
+                                let assigned = false;
+                                let attempts = 0;
+                                
+                                while (!assigned && attempts < shuffledMembers.length) {
+                                    const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
+                                    const memberName = shuffledMembers[memberIndex];
+                                    
+                                    if (!isMemberUnavailable(memberName, currentCellDateStr)) {
+                                        div.innerHTML = `<strong>${position}</strong>: ${memberName}`;
+                                        assigned = true;
+                                        assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
+                                    }
+                                    attempts++;
+                                }
+                                
+                                if (!assigned) {
+                                    div.innerHTML = `<strong>${position}</strong>: (Unavailable)`;
+                                    assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
+                                }
+                            }
+                        });
+                    }
+                };
+
+                holdContainer.appendChild(holdCheckbox);
+                holdContainer.appendChild(holdLabel);
+                holdContainer.appendChild(smallRandomizeBtn);
+                cell.appendChild(holdContainer);
 
                 const dateNumber = document.createElement('span');
                 dateNumber.classList.add('date-number');
                 dateNumber.textContent = date;
+                dateNumber.dataset.date = currentCellDateStr;
                 cell.appendChild(dateNumber);
 
                 if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
@@ -725,7 +836,46 @@ async function logout() { /* ... */ }
 // --- Event Listeners ---
 prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); });
 nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); });
-randomizeBtn.addEventListener('click', () => { if (teamMembers.length > 0) { let shuffledMembers = [...teamMembers]; shuffleArray(shuffledMembers); renderCalendar(currentDate.getFullYear(), currentDate.getMonth(), shuffledMembers); alert("Assignments randomized..."); } else { alert("Add team members first."); } });
+randomizeBtn.addEventListener('click', () => {
+    if (teamMembers.length > 0) {
+        // Store current held assignments before rendering
+        const currentHeldAssignments = new Map(heldDays);
+        
+        let shuffledMembers = [...teamMembers];
+        shuffleArray(shuffledMembers);
+        
+        // Render calendar with new random assignments
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth(), shuffledMembers);
+
+        // Restore held assignments
+        currentHeldAssignments.forEach((assignments, dateStr) => {
+            const cell = document.querySelector(`td .date-number[data-date="${dateStr}"]`)?.parentElement;
+            if (cell) {
+                // Restore assignments
+                assignments.forEach(({ position_name, member_name }) => {
+                    const assignmentDivs = cell.querySelectorAll('.assigned-position');
+                    for (const div of assignmentDivs) {
+                        if (div.querySelector('strong').textContent === position_name) {
+                            div.innerHTML = `<strong>${position_name}</strong>: ${member_name}`;
+                            break;
+                        }
+                    }
+                });
+
+                // Make sure to update the checkbox
+                const checkbox = cell.querySelector('.hold-checkbox');
+                if (checkbox) {
+                    checkbox.checked = true;
+                }
+
+                // Keep the assignments in the heldDays Map
+                heldDays.set(dateStr, assignments);
+            }
+        });
+    } else {
+        alert("Add team members first.");
+    }
+});
 logoutBtn.addEventListener('click', logout);
 // Member listeners (Unchanged)
 addMemberBtn.addEventListener('click', addMember); memberNameInput.addEventListener('keypress', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addMember();} });
@@ -786,12 +936,12 @@ async function initializeAdminView() {
     initializeTheme();
     if (await fetchData()) {
         console.log("Data fetch successful. Rendering components.");
+        await loadHeldAssignments(); // Load held assignments
         renderTeamList();
-        renderPositionList(); // <<< Renders new complex position list
+        renderPositionList();
         renderUnavailableList();
         renderOverrideDaysList();
         renderSpecialAssignmentsList();
-        // Dropdowns are populated by the list renderers now
         renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
     } else {
          console.error("Initialization failed..."); document.getElementById('scheduler').innerHTML = '<p>Failed to load...</p>';
@@ -829,4 +979,79 @@ async function updateMemberPositions(memberName) {
 function isMemberQualified(memberName, positionId) {
     const memberPositionsList = memberPositions.get(memberName) || [];
     return memberPositionsList.some(p => p.id === positionId);
+}
+
+// Add this function to save current assignments
+function saveCurrentAssignments() {
+    heldDays.clear(); // Clear previous holds
+    
+    // Get all calendar cells that have assignments
+    const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
+    
+    cells.forEach(cell => {
+        const assignments = Array.from(cell.querySelectorAll('.assigned-position')).map(div => {
+            const positionName = div.querySelector('strong').textContent;
+            const memberName = div.textContent.split(':')[1].trim();
+            return { position: positionName, member: memberName };
+        });
+        
+        if (assignments.length > 0) {
+            // Find the date for this cell
+            const dateStr = formatDateYYYYMMDD(new Date(currentDate.getFullYear(), currentDate.getMonth(), parseInt(cell.querySelector('.date-number').textContent)));
+            heldDays.set(dateStr, assignments);
+            
+            // Update checkbox
+            const checkbox = cell.querySelector('.hold-checkbox');
+            if (checkbox) {
+                checkbox.checked = true;
+            }
+        }
+    });
+    
+    alert('Current assignments saved and held');
+}
+
+// Add this function to clear all holds
+function clearAllHolds() {
+    heldDays.clear();
+    document.querySelectorAll('.hold-checkbox').forEach(checkbox => {
+        checkbox.checked = false;
+    });
+    alert('All holds cleared');
+}
+
+// Add these event listeners with your other listeners
+const saveHoldsBtn = document.getElementById('saveHoldsBtn');
+const clearHoldsBtn = document.getElementById('clearHoldsBtn');
+
+saveHoldsBtn.addEventListener('click', saveCurrentAssignments);
+clearHoldsBtn.addEventListener('click', clearAllHolds);
+
+// Add function to load held assignments from database
+async function loadHeldAssignments() {
+    try {
+        const response = await fetch('/api/held-assignments');
+        if (response.ok) {
+            const assignments = await response.json();
+            heldDays.clear();
+            
+            // Group assignments by date
+            assignments.forEach(assignment => {
+                const dateAssignments = heldDays.get(assignment.assignment_date) || [];
+                dateAssignments.push({
+                    position_name: assignment.position_name,
+                    member_name: assignment.member_name
+                });
+                heldDays.set(assignment.assignment_date, dateAssignments);
+            });
+            
+            // Update checkboxes
+            document.querySelectorAll('.hold-checkbox').forEach(checkbox => {
+                const dateStr = checkbox.id.replace('hold-', '');
+                checkbox.checked = heldDays.has(dateStr);
+            });
+        }
+    } catch (error) {
+        console.error('Error loading held assignments:', error);
+    }
 }
