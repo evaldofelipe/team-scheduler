@@ -14,6 +14,8 @@ let unavailableEntries = [];
 let overrideDays = [];
 let specialAssignments = [];
 let assignmentCounter = 0;
+let memberPositions = new Map(); // { memberName => [{id, name}, ...] }
+let heldDays = new Map(); // <<< ADDED: Store held assignments { dateStr => [{position_name, member_name}, ...] }
 
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat (Still needed for 'regular' type)
@@ -26,19 +28,21 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
 
 // --- API Interaction ---
  async function fetchData() {
-    console.log("Fetching data for user view (including position config & special assignments)...");
+    console.log("Fetching data for user view (including holds, position config, special assignments, and qualifications)..."); // <<< UPDATED Log
     try {
-        // Fetch all data needed, including updated positions and special assignments
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes] = await Promise.all([
+        // Fetch all data needed, including HELD ASSIGNMENTS
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes] = await Promise.all([ // <<< ADDED heldAssignmentsRes
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
-            fetch('/api/positions'), // <<< Will get new fields
+            fetch('/api/positions'),
             fetch('/api/overrides'),
-            fetch('/api/special-assignments')
+            fetch('/api/special-assignments'),
+            fetch('/api/all-member-positions'),
+            fetch('/api/held-assignments') // <<< ADDED Fetch for holds
         ]);
 
         // Check for 401 Unauthorized first
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes];
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes]; // <<< ADDED heldAssignmentsRes
          if (responses.some(res => res.status === 401)) {
              console.warn("User session expired or unauthorized. Redirecting to login.");
              window.location.href = '/login.html?message=Session expired. Please log in.';
@@ -49,20 +53,46 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
         const errors = [];
         if (!membersRes.ok) errors.push(`Members: ${membersRes.status} ${membersRes.statusText}`);
         if (!unavailRes.ok) errors.push(`Unavailability: ${unavailRes.status} ${unavailRes.statusText}`);
-        if (!positionsRes.ok) errors.push(`Positions: ${positionsRes.status} ${positionsRes.statusText}`); // <<< Check positions
+        if (!positionsRes.ok) errors.push(`Positions: ${positionsRes.status} ${positionsRes.statusText}`);
         if (!overridesRes.ok) errors.push(`Overrides: ${overridesRes.status} ${overridesRes.statusText}`);
         if (!specialAssignRes.ok) errors.push(`Special Assignments: ${specialAssignRes.status} ${specialAssignRes.statusText}`);
+        if (!allMemberPosRes.ok) errors.push(`Member Qualifications: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
+        if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`); // <<< ADDED Check
 
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
         // Store all fetched data
         teamMembers = await membersRes.json();
         unavailableEntries = await unavailRes.json();
-        positions = await positionsRes.json(); // <<< Store positions with new fields
+        positions = await positionsRes.json();
         overrideDays = await overridesRes.json();
         specialAssignments = await specialAssignRes.json();
+        const allMemberPositionsData = await allMemberPosRes.json();
+        const heldAssignmentsData = await heldAssignmentsRes.json(); // <<< ADDED: Get held assignments
 
-        console.log("User View Fetched Positions (with config):", positions); // Log updated positions
+        // Convert member positions object into a Map
+        memberPositions.clear();
+        for (const memberName in allMemberPositionsData) {
+            memberPositions.set(memberName, allMemberPositionsData[memberName]);
+        }
+
+        // <<< ADDED: Process and store held assignments into the heldDays Map >>>
+        heldDays.clear();
+        heldAssignmentsData.forEach(assignment => {
+            const dateStr = assignment.assignment_date; // Already in YYYY-MM-DD string format from server
+            const dateAssignments = heldDays.get(dateStr) || [];
+            // Store using the names directly as fetched from the DB table
+            dateAssignments.push({
+                position_name: assignment.position_name,
+                member_name: assignment.member_name
+            });
+            heldDays.set(dateStr, dateAssignments);
+        });
+        // <<< END ADDED >>>
+
+        console.log("User View Fetched Positions (with config):", positions);
+        console.log("User View Fetched Member Qualifications:", memberPositions);
+        console.log("User View Fetched Held Assignments:", heldDays); // <<< ADDED Log
         // ... other logs ...
         return true; // Indicate success
 
@@ -76,6 +106,12 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
 // Check unavailability against the FULL list
 function isMemberUnavailable(memberName, dateYYYYMMDD) { /* ... unchanged ... */
     return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
+}
+
+// <<< ADDED: Check if member is qualified for a position >>>
+function isMemberQualified(memberName, positionId) {
+    const memberQuals = memberPositions.get(memberName) || [];
+    return memberQuals.some(p => p.id === positionId);
 }
 
 // Removed shouldAssignOnDate - logic is now within renderCalendar
@@ -105,7 +141,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     let date = 1;
     const canAssign = membersToAssign && membersToAssign.length > 0;
 
-    // Regular calendar rendering (keep existing code)
+    // Regular calendar rendering
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
         for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
@@ -157,34 +193,62 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 
                 // --- Assign members if applicable ---
                 if (canAssign && positionsForThisDay.length > 0) {
-                    cell.classList.add('assignment-day'); // Mark cell visually if any assignments happen
+                    cell.classList.add('assignment-day');
+                    const memberCount = membersToAssign.length;
+                    const todaysHeldAssignments = heldDays.get(currentCellDateStr) || []; // Get holds for this specific date
 
                     positionsForThisDay.forEach(position => {
-                        let assignedMemberName = null;
-                        let attempts = 0;
-                        while (assignedMemberName === null && attempts < membersToAssign.length) {
-                            const potentialMemberIndex = (assignmentCounter + attempts) % membersToAssign.length;
-                            const potentialMemberName = membersToAssign[potentialMemberIndex];
-                            if (!isMemberUnavailable(potentialMemberName, currentCellDateStr)) {
-                                assignedMemberName = potentialMemberName;
-                                assignmentCounter = (assignmentCounter + attempts + 1);
-                            } else { attempts++; }
-                        }
-
                         const assignmentDiv = document.createElement('div');
-                        if (assignedMemberName) {
-                            assignmentDiv.classList.add('assigned-position');
-                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
-                        } else {
-                            assignmentDiv.classList.add('assignment-skipped');
-                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`;
-                            if (attempts === membersToAssign.length) { assignmentCounter++; }
-                        }
-                        cell.appendChild(assignmentDiv);
-                    });
+                        let assignedMemberName = null;
 
-                    if (membersToAssign.length > 0) { assignmentCounter %= membersToAssign.length; }
+                        // <<< MODIFIED: Check for held assignment FIRST >>>
+                        const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
+
+                        if (heldAssignment) {
+                            // Use the held assignment
+                            assignedMemberName = heldAssignment.member_name;
+                            assignmentDiv.classList.add('assigned-position', 'held'); // Optional: add 'held' class for styling
+                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                            // We don't advance the main assignmentCounter here, as holds are fixed
+                        } else {
+                            // No hold for this position, proceed with normal assignment logic
+                            let attempts = 0;
+                            while (assignedMemberName === null && attempts < memberCount) {
+                                const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
+                                const potentialMemberName = membersToAssign[potentialMemberIndex];
+
+                                if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
+                                    isMemberQualified(potentialMemberName, position.id))
+                                {
+                                    assignedMemberName = potentialMemberName;
+                                    // Advance counter ONLY when assigning non-held position
+                                    assignmentCounter = (assignmentCounter + attempts + 1);
+                                } else {
+                                    attempts++;
+                                }
+                            }
+
+                            if (assignedMemberName) {
+                                assignmentDiv.classList.add('assigned-position');
+                                assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                            } else {
+                                assignmentDiv.classList.add('assignment-skipped');
+                                assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable/Unqualified)`;
+                                if (attempts === memberCount) {
+                                    // Advance counter if we skipped everyone for a non-held position
+                                    assignmentCounter++;
+                                }
+                            }
+                        }
+                        // <<< END MODIFICATION >>>
+
+                        cell.appendChild(assignmentDiv);
+                    }); // End forEach position
+
+                    // Ensure counter wraps around correctly (only affected by non-held assignments)
+                    if (memberCount > 0) { assignmentCounter %= memberCount; }
                     else { assignmentCounter = 0; }
+
                 } // End if assignments needed
 
                 date++;
@@ -196,6 +260,8 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     } // End week loop
 
     // Mobile view rendering
+    // <<< IMPORTANT: Apply the same hold check logic to the mobile view >>>
+    let mobileAssignmentCounter = 0; // Reset counter for mobile pass
     for (let i = 0; i < daysInMonth; i++) {
         const currentDate = new Date(year, month, i + 1);
         const dayOfWeek = currentDate.getDay();
@@ -254,40 +320,67 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
         // Create assignments
         if (canAssign && positionsForThisDay.length > 0) {
             dayItem.classList.add('assignment-day');
-            
+            const memberCount = membersToAssign.length;
+            const todaysHeldAssignments = heldDays.get(currentCellDateStr) || []; // Get holds for this date
+
             positionsForThisDay.forEach(position => {
                 const assignmentDiv = document.createElement('div');
-                assignmentDiv.className = 'assigned-position';
-                
+                assignmentDiv.className = 'assigned-position'; // Base class
                 let assignedMemberName = null;
-                let attempts = 0;
-                while (assignedMemberName === null && attempts < membersToAssign.length) {
-                    const potentialMemberIndex = (assignmentCounter + attempts) % membersToAssign.length;
-                    const potentialMemberName = membersToAssign[potentialMemberIndex];
-                    if (!isMemberUnavailable(potentialMemberName, currentCellDateStr)) {
-                        assignedMemberName = potentialMemberName;
-                        assignmentCounter = (assignmentCounter + attempts + 1);
-                    }
-                    attempts++;
-                }
 
-                if (assignedMemberName) {
+                // <<< MODIFIED: Mobile - Check for held assignment FIRST >>>
+                const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
+
+                if (heldAssignment) {
+                    // Use the held assignment
+                    assignedMemberName = heldAssignment.member_name;
+                    assignmentDiv.classList.add('held'); // Optional styling class
                     assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                    // Don't advance mobile counter for holds
                 } else {
-                    assignmentDiv.classList.add('assignment-skipped');
-                    assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable)`;
-                    if (attempts === membersToAssign.length) {
-                        assignmentCounter++;
+                    // No hold, proceed with normal assignment logic
+                    let attempts = 0;
+                    while (assignedMemberName === null && attempts < memberCount) {
+                        const potentialMemberIndex = (mobileAssignmentCounter + attempts) % memberCount;
+                        const potentialMemberName = membersToAssign[potentialMemberIndex];
+
+                        if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
+                            isMemberQualified(potentialMemberName, position.id))
+                        {
+                            assignedMemberName = potentialMemberName;
+                            // Advance mobile counter ONLY for non-held assignments
+                            mobileAssignmentCounter = (mobileAssignmentCounter + attempts + 1);
+                        } else {
+                            attempts++;
+                        }
+                    }
+
+                    if (assignedMemberName) {
+                        // No extra class needed here, base class is set above
+                        assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                    } else {
+                        assignmentDiv.classList.add('assignment-skipped');
+                        assignmentDiv.innerHTML = `<strong>${position.name}:</strong> (Unavailable/Unqualified)`;
+                        if (attempts === memberCount) {
+                            // Advance mobile counter if skipped for non-held
+                            mobileAssignmentCounter++;
+                        }
                     }
                 }
-                
+                // <<< END MODIFICATION >>>
+
                 dayContent.appendChild(assignmentDiv);
-            });
-        }
+            }); // End forEach position
+
+            // Ensure mobile counter wraps (only affected by non-held assignments)
+             if (memberCount > 0) { mobileAssignmentCounter %= memberCount; }
+             else { mobileAssignmentCounter = 0; }
+
+        } // End if assignments needed
 
         dayItem.appendChild(dayContent);
         mobileView.appendChild(dayItem);
-    }
+    } // End mobile day loop
 }
 
 

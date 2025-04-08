@@ -392,6 +392,34 @@ app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req,
     }
 });
 
+// <<< NEW: Endpoint to get all member-position relationships >>>
+app.get('/api/all-member-positions', requireLogin(), async (req, res) => {
+    try {
+        // Fetch member name and associated position details (ID and Name)
+        const [rows] = await pool.query(
+            `SELECT mp.member_name, p.id as position_id, p.name as position_name
+             FROM member_positions mp
+             JOIN positions p ON mp.position_id = p.id
+             ORDER BY mp.member_name, p.display_order, p.name`
+        );
+
+        // Group the results by member name
+        const allMemberPositions = rows.reduce((acc, row) => {
+            if (!acc[row.member_name]) {
+                acc[row.member_name] = [];
+            }
+            acc[row.member_name].push({ id: row.position_id, name: row.position_name });
+            return acc;
+        }, {}); // Start with an empty object
+
+        res.json(allMemberPositions); // Send as { memberName: [{id, name}, ...], ... }
+
+    } catch (error) {
+        console.error('Error fetching all member positions:', error);
+        res.status(500).json({ message: 'Server error fetching all member positions.' });
+    }
+});
+
 // --- Start Server ---
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
