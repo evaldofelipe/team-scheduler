@@ -562,3 +562,38 @@ body.login-page #theme-toggle {
     right: 20px;
     /* Inherits basic button styles, ensure it looks okay */
 }
+
+.team-member-item {
+    padding: 10px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.member-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+.member-positions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding-left: 15px;
+    font-size: 0.9em;
+}
+
+.position-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    background-color: var(--calendar-assignment-bg);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.position-checkbox input[type="checkbox"] {
+    margin: 0;
+}

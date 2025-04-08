@@ -44,6 +44,7 @@ let unavailableEntries = [];
 let overrideDays = [];
 let specialAssignments = [];
 let assignmentCounter = 0;
+let memberPositions = new Map(); // Store member position assignments
 
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
@@ -59,13 +60,12 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
 
 // --- API Interaction Functions ---
 async function fetchData() {
-    console.log("Fetching data (positions including assignment config)...");
+    console.log("Fetching data...");
     try {
-        // Fetching all data, including the updated positions endpoint
         const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
-            fetch('/api/positions'), // Will now return assignment_type and allowed_days
+            fetch('/api/positions'),
             fetch('/api/overrides'),
             fetch('/api/special-assignments')
         ]);
@@ -87,6 +87,17 @@ async function fetchData() {
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
         teamMembers = await membersRes.json();
+        
+        // Fetch positions for each member
+        memberPositions.clear();
+        await Promise.all(teamMembers.map(async (member) => {
+            const response = await fetch(`/api/member-positions/${encodeURIComponent(member)}`);
+            if (response.ok) {
+                const positions = await response.json();
+                memberPositions.set(member, positions);
+            }
+        }));
+
         unavailableEntries = await unavailRes.json();
         positions = await positionsRes.json(); // <<< Store positions with new fields
         overrideDays = await overridesRes.json();
@@ -103,8 +114,53 @@ async function fetchData() {
 
 // --- UI Rendering Functions ---
 
-function renderTeamList() { /* ... unchanged ... */
-    teamList.innerHTML = ''; const sortedMembers = [...teamMembers].sort(); sortedMembers.forEach((member)=>{ const li = document.createElement('li'); li.textContent = member; const deleteBtn = document.createElement('button'); deleteBtn.textContent = 'x'; deleteBtn.title = `Remove ${member}`; deleteBtn.onclick = () => removeMember(member); li.appendChild(deleteBtn); teamList.appendChild(li); }); if (teamList.lastChild) teamList.lastChild.style.borderBottom = 'none'; populateMemberDropdown();
+function renderTeamList() {
+    teamList.innerHTML = '';
+    const sortedMembers = [...teamMembers].sort();
+    
+    sortedMembers.forEach((member) => {
+        const li = document.createElement('li');
+        li.className = 'team-member-item';
+        li.dataset.memberName = member; // Add data attribute
+        
+        // Member name and delete button container
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'member-header';
+        headerDiv.textContent = member;
+        
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'x';
+        deleteBtn.title = `Remove ${member}`;
+        deleteBtn.onclick = () => removeMember(member);
+        headerDiv.appendChild(deleteBtn);
+        
+        li.appendChild(headerDiv);
+        
+        // Position selection
+        const positionsDiv = document.createElement('div');
+        positionsDiv.className = 'member-positions';
+        
+        const memberCurrentPositions = memberPositions.get(member) || [];
+        positions.forEach(position => {
+            const label = document.createElement('label');
+            label.className = 'position-checkbox';
+            
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = position.id;
+            checkbox.checked = memberCurrentPositions.some(p => p.id === position.id);
+            checkbox.addEventListener('change', () => updateMemberPositions(member));
+            
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${position.name}`));
+            positionsDiv.appendChild(label);
+        });
+        
+        li.appendChild(positionsDiv);
+        teamList.appendChild(li);
+    });
+    if (teamList.lastChild) teamList.lastChild.style.borderBottom = 'none';
+    populateMemberDropdown();
 }
 
 // <<< MAJOR REWRITE: renderPositionList >>>
@@ -314,10 +370,12 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                         while (assignedMemberName === null && attempts < membersToAssign.length) {
                             const potentialMemberIndex = (assignmentCounter + attempts) % membersToAssign.length;
                             const potentialMemberName = membersToAssign[potentialMemberIndex];
-                            if (!isMemberUnavailable(potentialMemberName, currentCellDateStr)) {
+                            if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) && 
+                                isMemberQualified(potentialMemberName, position.id)) {
                                 assignedMemberName = potentialMemberName;
                                 assignmentCounter = (assignmentCounter + attempts + 1);
-                            } else { attempts++; }
+                            }
+                            attempts++;
                         }
 
                         const assignmentDiv = document.createElement('div');
@@ -710,3 +768,33 @@ async function initializeAdminView() {
 
 // Start the application
 initializeAdminView();
+
+// Update function to use a more compatible selector approach
+async function updateMemberPositions(memberName) {
+    // Find the member's list item using a data attribute
+    const memberItems = Array.from(teamList.querySelectorAll('.team-member-item'));
+    const memberItem = memberItems.find(item => 
+        item.querySelector('.member-header').textContent.trim().includes(memberName)
+    );
+    
+    if (!memberItem) {
+        console.error(`Could not find list item for member: ${memberName}`);
+        return;
+    }
+    
+    const checkedPositions = Array.from(
+        memberItem.querySelectorAll('.member-positions input[type="checkbox"]:checked')
+    ).map(cb => parseInt(cb.value));
+    
+    await apiCall(`/api/member-positions/${encodeURIComponent(memberName)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positionIds: checkedPositions })
+    });
+}
+
+// Update the assignment logic in renderCalendar
+function isMemberQualified(memberName, positionId) {
+    const memberPositionsList = memberPositions.get(memberName) || [];
+    return memberPositionsList.some(p => p.id === positionId);
+}

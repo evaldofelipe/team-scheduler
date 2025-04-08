@@ -338,6 +338,60 @@ app.get('/login.html', (req, res) => { res.sendFile(path.join(__dirname, 'public
 // --- Error Handling ---
 app.use((err, req, res, next) => { console.error(err.stack); res.status(500).send('Something broke on the server!'); });
 
+// --- MEMBER POSITIONS API ---
+app.get('/api/member-positions/:memberName', requireLogin(), async (req, res) => {
+    const memberName = decodeURIComponent(req.params.memberName);
+    try {
+        const [positions] = await pool.query(
+            `SELECT p.id, p.name 
+             FROM positions p
+             INNER JOIN member_positions mp ON p.id = mp.position_id
+             WHERE mp.member_name = ?
+             ORDER BY p.display_order, p.name`,
+            [memberName]
+        );
+        res.json(positions);
+    } catch (error) {
+        console.error('Error fetching member positions:', error);
+        res.status(500).send('Server error fetching member positions.');
+    }
+});
+
+app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req, res) => {
+    const memberName = decodeURIComponent(req.params.memberName);
+    const { positionIds } = req.body; // Array of position IDs
+    
+    if (!Array.isArray(positionIds)) {
+        return res.status(400).send('Position IDs must be provided as an array.');
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        
+        // Delete existing positions for this member
+        await connection.query('DELETE FROM member_positions WHERE member_name = ?', [memberName]);
+        
+        // Insert new positions
+        if (positionIds.length > 0) {
+            const values = positionIds.map(id => [memberName, id]);
+            await connection.query(
+                'INSERT INTO member_positions (member_name, position_id) VALUES ?',
+                [values]
+            );
+        }
+        
+        await connection.commit();
+        res.json({ success: true });
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error updating member positions:', error);
+        res.status(500).send('Server error updating member positions.');
+    } finally {
+        connection.release();
+    }
+});
+
 // --- Start Server ---
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

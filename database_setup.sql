@@ -61,6 +61,16 @@ CREATE TABLE IF NOT EXISTS special_assignments (
     UNIQUE KEY unique_special_assignment (assignment_date, position_id) -- Prevent adding the same position slot twice on the same date
 );
 
+-- Add new table for member position capabilities
+CREATE TABLE IF NOT EXISTS member_positions (
+    member_name VARCHAR(100) NOT NULL,
+    position_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (member_name, position_id),
+    FOREIGN KEY (member_name) REFERENCES team_members(name) ON DELETE CASCADE,
+    FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
+);
+
 -- --- Sample Data (IMPORTANT: Use secure passwords and hashing in real apps!) ---
 
 -- Delete existing sample users first to avoid errors on re-run
