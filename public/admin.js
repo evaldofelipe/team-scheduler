@@ -397,42 +397,49 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                         let shuffledMembers = [...teamMembers];
                         shuffleArray(shuffledMembers);
                         
-                        // Only re-render assignments for this specific day
-                        const assignmentDivs = cell.querySelectorAll('.assigned-position');
-                        assignmentDivs.forEach(div => {
-                            if (!holdCheckbox.checked) { // Only randomize if not held
-                                // Fix position name extraction to remove the colon
-                                const positionText = div.querySelector('strong').textContent;
-                                const positionName = positionText.replace(':', '').trim();
-                                const positionInfo = positions.find(p => 
-                                    p.name.toLowerCase() === positionName.toLowerCase()
-                                );
+                        // Get all calendar cells that have assignments
+                        const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
+                        
+                        cells.forEach(cell => {
+                            if (!cell.querySelector('.hold-checkbox')?.checked) { // Skip held assignments
+                                const dateNumber = cell.querySelector('.date-number');
+                                const currentDate = dateNumber?.dataset.date;
                                 
-                                if (!positionInfo) {
-                                    console.error(`Position not found: "${positionName}" (Available positions: ${positions.map(p => p.name).join(', ')})`);
-                                    return;
-                                }
+                                if (currentDate) {
+                                    const assignmentDivs = cell.querySelectorAll('.assigned-position');
+                                    assignmentDivs.forEach(div => {
+                                        const positionName = div.querySelector('strong').textContent.replace(':', '').trim();
+                                        const positionInfo = positions.find(p => p.name.toLowerCase() === positionName.toLowerCase());
+                                        
+                                        if (!positionInfo) {
+                                            console.error(`Position not found: "${positionName}"`);
+                                            return;
+                                        }
 
-                                let assigned = false;
-                                let attempts = 0;
-                                
-                                while (!assigned && attempts < shuffledMembers.length) {
-                                    const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
-                                    const memberName = shuffledMembers[memberIndex];
-                                    
-                                    // Check both unavailability AND position qualification
-                                    if (!isMemberUnavailable(memberName, currentCellDateStr) && 
-                                        isMemberQualified(memberName, positionInfo.id)) {
-                                        div.innerHTML = `<strong>${positionInfo.name}</strong>: ${memberName}`;
-                                        assigned = true;
-                                        assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
-                                    }
-                                    attempts++;
-                                }
-                                
-                                if (!assigned) {
-                                    div.innerHTML = `<strong>${positionInfo.name}</strong>: (No qualified member available)`;
-                                    assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
+                                        // Find an available member for this position
+                                        let assigned = false;
+                                        let attempts = 0;
+                                        const maxAttempts = shuffledMembers.length;
+
+                                        while (!assigned && attempts < maxAttempts) {
+                                            const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
+                                            const memberName = shuffledMembers[memberIndex];
+                                            
+                                            // Check both unavailability AND position qualification
+                                            if (!isMemberUnavailable(memberName, currentDate) && 
+                                                isMemberQualified(memberName, positionInfo.id)) {
+                                                div.innerHTML = `<strong>${positionInfo.name}</strong>: ${memberName}`;
+                                                assigned = true;
+                                                assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
+                                            }
+                                            attempts++;
+                                        }
+                                        
+                                        if (!assigned) {
+                                            div.innerHTML = `<strong>${positionInfo.name}</strong>: (No qualified member available)`;
+                                            assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
+                                        }
+                                    });
                                 }
                             }
                         });
@@ -857,8 +864,52 @@ randomizeBtn.addEventListener('click', () => {
         let shuffledMembers = [...teamMembers];
         shuffleArray(shuffledMembers);
         
-        // Render calendar with new random assignments
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth(), shuffledMembers);
+        // Get all calendar cells that have assignments
+        const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
+        
+        cells.forEach(cell => {
+            if (!cell.querySelector('.hold-checkbox')?.checked) { // Skip held assignments
+                const dateNumber = cell.querySelector('.date-number');
+                const currentDate = dateNumber?.dataset.date;
+                
+                if (currentDate) {
+                    const assignmentDivs = cell.querySelectorAll('.assigned-position');
+                    assignmentDivs.forEach(div => {
+                        const positionName = div.querySelector('strong').textContent.replace(':', '').trim();
+                        const positionInfo = positions.find(p => p.name.toLowerCase() === positionName.toLowerCase());
+                        
+                        if (!positionInfo) {
+                            console.error(`Position not found: "${positionName}"`);
+                            return;
+                        }
+
+                        // Find an available member for this position
+                        let assigned = false;
+                        let attempts = 0;
+                        const maxAttempts = shuffledMembers.length;
+
+                        while (!assigned && attempts < maxAttempts) {
+                            const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
+                            const memberName = shuffledMembers[memberIndex];
+                            
+                            // Check both unavailability AND position qualification
+                            if (!isMemberUnavailable(memberName, currentDate) && 
+                                isMemberQualified(memberName, positionInfo.id)) {
+                                div.innerHTML = `<strong>${positionInfo.name}</strong>: ${memberName}`;
+                                assigned = true;
+                                assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
+                            }
+                            attempts++;
+                        }
+                        
+                        if (!assigned) {
+                            div.innerHTML = `<strong>${positionInfo.name}</strong>: (No qualified member available)`;
+                            assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
+                        }
+                    });
+                }
+            }
+        });
 
         // Restore held assignments
         currentHeldAssignments.forEach((assignments, dateStr) => {
@@ -880,9 +931,6 @@ randomizeBtn.addEventListener('click', () => {
                 if (checkbox) {
                     checkbox.checked = true;
                 }
-
-                // Keep the assignments in the heldDays Map
-                heldDays.set(dateStr, assignments);
             }
         });
     } else {
