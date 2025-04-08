@@ -193,32 +193,37 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 
                 let positionsForThisDay = [];
 
-                // Add positions based on rules
+                // --- CORRECTED LOGIC for adding positions based on rules ---
                 positions.forEach(position => {
                     let shouldAdd = false;
+                    const allowed = position.allowed_days ? position.allowed_days.split(',').map(d => d.trim()) : []; // Ensure trimmed strings
+
                     if (position.assignment_type === 'specific_days') {
-                        const allowed = position.allowed_days ? position.allowed_days.split(',').map(Number) : [];
-                        if (allowed.includes(currentDayOfWeek)) {
+                        // Specific Days: Assign ONLY if the current day is in its allowed list. Overrides DON'T apply here.
+                        if (allowed.includes(currentDayOfWeek.toString())) { // Compare string day number
                             shouldAdd = true;
                         }
                     } else { // 'regular' type
-                        if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek)) {
+                        // Regular: Assign if it's a default day OR if it's an override day.
+                        if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay) {
                             shouldAdd = true;
                         }
                     }
-                    // Override adds the position regardless of day, unless it's already added
-                    if (isOverrideDay && !positionsForThisDay.some(p => p.id === position.id)) {
-                         shouldAdd = true;
-                    }
+                    // Removed the separate override check here, it's integrated above for 'regular' type
 
                     if (shouldAdd) {
-                        positionsForThisDay.push(position);
+                        // Avoid duplicates if a position somehow matches multiple criteria (e.g., special + rule)
+                        if (!positionsForThisDay.some(p => p.id === position.id)) {
+                            positionsForThisDay.push(position);
+                        }
                     }
                 });
+                // --- END CORRECTED LOGIC ---
 
-                // Add special assignment slots (ensuring no duplicates if already added by rules/override)
+                // Add special assignment slots (ensuring no duplicates if already added by rules)
                 todaysSpecialAssignments.forEach(sa => {
                     const positionInfo = positions.find(p => p.id === sa.position_id);
+                    // Check if position exists and isn't already added
                     if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
                         positionsForThisDay.push(positionInfo);
                     }
@@ -291,7 +296,7 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     } // End week loop
 
     // Mobile view rendering
-    // <<< IMPORTANT: Apply the same hold check logic to the mobile view >>>
+    // <<< IMPORTANT: Apply the same corrected logic to the mobile view >>>
     let mobileAssignmentCounter = 0; // Reset counter for mobile pass
     const mobileFirstDate = new Date(Date.UTC(year, month, 1));
     for (let d = 0; d < daysInMonth; d++) {
@@ -317,23 +322,40 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
         const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
         let positionsForThisDay = [];
 
+        // --- CORRECTED LOGIC for adding positions based on rules (Mobile View) ---
         positions.forEach(position => {
             let shouldAdd = false;
+            const allowed = position.allowed_days ? position.allowed_days.split(',').map(day => day.trim()) : []; // Ensure trimmed strings
+
             if (position.assignment_type === 'specific_days') {
-                const allowed = position.allowed_days ? position.allowed_days.split(',').map(Number) : [];
-                if (allowed.includes(currentDayOfWeek)) shouldAdd = true;
-            } else {
-                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek)) shouldAdd = true;
+                // Specific Days: Assign ONLY if the current day is in its allowed list.
+                if (allowed.includes(currentDayOfWeek.toString())) { // Compare string day number
+                    shouldAdd = true;
+                }
+            } else { // 'regular' type
+                // Regular: Assign if it's a default day OR if it's an override day.
+                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay) {
+                    shouldAdd = true;
+                }
             }
-            if (isOverrideDay && !positionsForThisDay.some(p => p.id === position.id)) shouldAdd = true;
-            if (shouldAdd) positionsForThisDay.push(position);
+
+            if (shouldAdd) {
+                 // Avoid duplicates
+                if (!positionsForThisDay.some(p => p.id === position.id)) {
+                    positionsForThisDay.push(position);
+                }
+            }
         });
+        // --- END CORRECTED LOGIC (Mobile View) ---
+
+        // Add special assignments (ensuring no duplicates)
         todaysSpecialAssignments.forEach(sa => {
             const positionInfo = positions.find(p => p.id === sa.position_id);
             if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
                 positionsForThisDay.push(positionInfo);
             }
         });
+        // Sort positions
         positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
 
         // Create assignments for mobile
