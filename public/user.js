@@ -3,7 +3,7 @@ const monthYearHeader = document.getElementById('monthYearHeader');
 const calendarBody = document.getElementById('calendar-body');
 const prevMonthBtn = document.getElementById('prevMonthBtn');
 const nextMonthBtn = document.getElementById('nextMonthBtn');
-const logoutBtn = document.getElementById('logoutBtn');
+// const logoutBtn = document.getElementById('logoutBtn'); // REMOVED
 // Theme Toggle (Button itself is selected below)
 
 // --- State Variables ---
@@ -28,38 +28,39 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
 
 // --- API Interaction ---
  async function fetchData() {
-    console.log("Fetching data for user view (including holds, position config, special assignments, and qualifications)..."); // <<< UPDATED Log
+    console.log("Fetching data for user view (including holds, position config, special assignments, and qualifications)...");
     try {
-        // Fetch all data needed, including HELD ASSIGNMENTS
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes] = await Promise.all([ // <<< ADDED heldAssignmentsRes
+        // Fetch all data needed
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
             fetch('/api/overrides'),
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
-            fetch('/api/held-assignments') // <<< ADDED Fetch for holds
+            fetch('/api/held-assignments')
         ]);
 
-        // Check for 401 Unauthorized first
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes]; // <<< ADDED heldAssignmentsRes
-         if (responses.some(res => res.status === 401)) {
-             console.warn("User session expired or unauthorized. Redirecting to login.");
-             window.location.href = '/login.html?message=Session expired. Please log in.';
-             return false;
-         }
-
-         // Check for other errors
+        // Check for errors (excluding 401 redirect for public view)
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes];
         const errors = [];
-        if (!membersRes.ok) errors.push(`Members: ${membersRes.status} ${membersRes.statusText}`);
-        if (!unavailRes.ok) errors.push(`Unavailability: ${unavailRes.status} ${unavailRes.statusText}`);
-        if (!positionsRes.ok) errors.push(`Positions: ${positionsRes.status} ${positionsRes.statusText}`);
-        if (!overridesRes.ok) errors.push(`Overrides: ${overridesRes.status} ${overridesRes.statusText}`);
-        if (!specialAssignRes.ok) errors.push(`Special Assignments: ${specialAssignRes.status} ${specialAssignRes.statusText}`);
-        if (!allMemberPosRes.ok) errors.push(`Member Qualifications: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
-        if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`); // <<< ADDED Check
+        responses.forEach((res, index) => {
+            if (!res.ok) {
+                const apiName = ['Members', 'Unavailability', 'Positions', 'Overrides', 'Special Assignments', 'Member Qualifications', 'Held Assignments'][index];
+                // Don't redirect on 401/403 from public view, just log and report error
+                if (res.status === 401 || res.status === 403) {
+                     console.warn(`Authorization error (${res.status}) fetching ${apiName}. This endpoint might need to be public.`);
+                     errors.push(`${apiName}: Auth Error ${res.status}`);
+                } else {
+                    errors.push(`${apiName}: ${res.status} ${res.statusText}`);
+                }
+            }
+        });
 
-        if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
+        if (errors.length > 0) {
+            // Throw error to be caught below, preventing further processing
+            throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`);
+        }
 
         // Store all fetched data
         teamMembers = await membersRes.json();
@@ -68,7 +69,7 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
         overrideDays = await overridesRes.json();
         specialAssignments = await specialAssignRes.json();
         const allMemberPositionsData = await allMemberPosRes.json();
-        const heldAssignmentsData = await heldAssignmentsRes.json(); // <<< ADDED: Get held assignments
+        const heldAssignmentsData = await heldAssignmentsRes.json();
 
         // Convert member positions object into a Map
         memberPositions.clear();
@@ -92,12 +93,18 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
 
         console.log("User View Fetched Positions (with config):", positions);
         console.log("User View Fetched Member Qualifications:", memberPositions);
-        console.log("User View Fetched Held Assignments:", heldDays); // <<< ADDED Log
-        // ... other logs ...
+        console.log("User View Fetched Held Assignments:", heldDays);
         return true; // Indicate success
 
-    } catch (error) { /* ... error handling unchanged ... */
-        console.error("Failed to fetch initial data for user view:", error); if (!document.body.dataset.fetchErrorShown) { alert("Failed to load schedule data..."); document.body.dataset.fetchErrorShown = "true"; } return false;
+    } catch (error) {
+        console.error("Failed to fetch initial data for user view:", error);
+        // Display error to the user without redirecting
+        const schedulerDiv = document.getElementById('scheduler');
+        if (schedulerDiv) {
+            schedulerDiv.innerHTML = '<p style="color: red; padding: 20px;">Failed to load schedule data. Please try refreshing the page later.</p>';
+        }
+        // Prevent further rendering attempts
+        return false;
     }
 }
 
@@ -383,24 +390,15 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     } // End mobile day loop
 }
 
-
-// --- Logout ---
- async function logout() { /* ... unchanged ... */
-    try { const response = await fetch('/logout', { method: 'POST' }); if (response.ok) { window.location.href = '/login.html'; } else { const result = await response.json(); alert(`Logout failed: ${result.message || 'Unknown error'}`); } } catch (error) { console.error('Logout error:', error); alert('Logout request failed. Check console.'); }
-}
-
 // --- Event Listeners ---
  prevMonthBtn.addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() - 1);
-    // Only need to re-render calendar, user view doesn't have sidebar lists
     renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
  });
  nextMonthBtn.addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() + 1);
-    // Only need to re-render calendar
     renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
  });
- logoutBtn.addEventListener('click', logout);
 
 // --- Theme Toggle ---
 function initializeTheme() {
@@ -441,12 +439,13 @@ if (themeToggleBtn) {
 async function initializeUserView() {
     console.log("Initializing User View...");
     initializeTheme();
-    if(await fetchData()){ // Fetch all data including new position config
+    // Fetch data and render. Error handling inside fetchData will display message if needed.
+    if(await fetchData()){
         console.log("Data fetch successful. Rendering calendar.");
-        renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Render calendar using new logic
+        renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
     } else {
-        console.error("Initialization failed due to data fetch error.");
-        document.getElementById('scheduler').innerHTML = '<p>Failed to load schedule data...</p>';
+        console.error("Initialization failed due to data fetch error. Error message should be displayed on page.");
+        // No need to modify #scheduler here, fetchData does it on error
     }
 }
 

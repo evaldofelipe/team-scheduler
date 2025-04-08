@@ -56,20 +56,29 @@ app.use(session({
 const requireLogin = (requiredRole = 'user') => {
     return (req, res, next) => {
         if (!req.session.user) {
+            // If API request fails auth, send JSON error
             if (req.headers.accept && req.headers.accept.includes('application/json')) {
                  return res.status(401).json({ success: false, message: 'Unauthorized: Please log in.' });
-            } else {
-                 return res.status(401).redirect('/login.html?message=Please log in');
             }
+            // Otherwise, redirect browser requests to login
+            // Keep the original message for clarity if redirected from elsewhere
+            const message = req.query.message || 'Please log in';
+            return res.status(401).redirect(`/login.html?message=${encodeURIComponent(message)}`);
         }
-        if (req.session.user.role === 'admin') { return next(); } // Admins pass all checks
+        // Allow admin access to everything
+        if (req.session.user.role === 'admin') {
+            return next();
+        }
+        // If admin role is specifically required, but user is not admin
         if (requiredRole === 'admin' && req.session.user.role !== 'admin') {
              if (req.headers.accept && req.headers.accept.includes('application/json')) {
                  return res.status(403).json({ success: false, message: 'Forbidden: Insufficient privileges.' });
             } else {
-                return res.status(403).send('Forbidden: Insufficient privileges.');
+                // Redirect non-admin users trying to access admin pages/actions
+                return res.status(403).redirect('/user?message=Access Denied'); // Redirect to user page
             }
         }
+        // If we reach here, the user is logged in and meets the minimum role requirement ('user')
         next();
     };
 };
@@ -135,7 +144,7 @@ app.post('/logout', (req, res) => { /* ... unchanged ... */
 });
 
 // --- TEAM MEMBERS API ---
-app.get('/api/team-members', requireLogin(), async (req, res) => { /* ... unchanged ... */
+app.get('/api/team-members', async (req, res) => { /* ... logic unchanged ... */
     try { const [members] = await pool.query('SELECT name FROM team_members ORDER BY name'); res.json(members.map(m => m.name)); } catch (error) { console.error('Error fetching team members:', error); res.status(500).send('Server error fetching team members.'); }
 });
 app.post('/api/team-members', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
@@ -150,9 +159,8 @@ app.delete('/api/team-members/:name', requireLogin('admin'), async (req, res) =>
 
 
 // --- POSITIONS API ---
-app.get('/api/positions', requireLogin(), async (req, res) => {
+app.get('/api/positions', async (req, res) => { /* ... logic unchanged ... */
     try {
-        // <<< MODIFIED: Select new columns >>>
         const [positions] = await pool.query(
             'SELECT id, name, display_order, assignment_type, allowed_days FROM positions ORDER BY display_order, name'
         );
@@ -280,7 +288,7 @@ app.delete('/api/positions/:id', requireLogin('admin'), async (req, res) => { /*
 
 
 // --- UNAVAILABILITY API ---
-app.get('/api/unavailability', requireLogin(), async (req, res) => { /* ... unchanged (using dateStrings: true now) ... */
+app.get('/api/unavailability', async (req, res) => { /* ... logic unchanged ... */
      try { const [entries] = await pool.query('SELECT id, member_name, unavailable_date FROM unavailability ORDER BY unavailable_date, member_name'); res.json(entries.map(entry => ({ id: entry.id, member: entry.member_name, date: entry.unavailable_date }))); } catch (error) { console.error('Error fetching unavailability:', error); res.status(500).send('Server error fetching unavailability.'); }
 });
 app.post('/api/unavailability', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
@@ -294,7 +302,7 @@ app.delete('/api/unavailability/:id', requireLogin('admin'), async (req, res) =>
 
 
 // --- OVERRIDE ASSIGNMENT DAYS API ---
-app.get('/api/overrides', requireLogin(), async (req, res) => { /* ... unchanged (using dateStrings: true now) ... */
+app.get('/api/overrides', async (req, res) => { /* ... logic unchanged ... */
     try { const [overrides] = await pool.query('SELECT override_date FROM override_assignment_days ORDER BY override_date'); res.json(overrides.map(o => o.override_date)); } catch (error) { console.error('Error fetching override days:', error); res.status(500).send('Error fetching override days'); }
 });
 app.post('/api/overrides', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
@@ -308,7 +316,7 @@ app.delete('/api/overrides/:date', requireLogin('admin'), async (req, res) => { 
 
 
 // --- SPECIAL ASSIGNMENTS API ---
-app.get('/api/special-assignments', requireLogin(), async (req, res) => { /* ... unchanged (using dateStrings: true now) ... */
+app.get('/api/special-assignments', async (req, res) => { /* ... logic unchanged ... */
     try { const [assignments] = await pool.query(` SELECT sa.id, sa.assignment_date, sa.position_id, p.name AS position_name FROM special_assignments sa JOIN positions p ON sa.position_id = p.id ORDER BY sa.assignment_date, p.name `); res.json(assignments.map(sa => ({ ...sa, date: sa.assignment_date }))); } catch (error) { console.error('Error fetching special assignments:', error); res.status(500).send('Server error fetching special assignments.'); }
 });
 app.post('/api/special-assignments', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
@@ -330,20 +338,29 @@ app.post('/api/users', requireLogin('admin'), async (req, res) => { /* ... uncha
 
 
 // --- HTML Serving Routes ---
-app.get('/', (req, res) => { res.redirect('/login.html'); });
-app.get('/admin', requireLogin('admin'), (req, res) => { res.sendFile(path.join(__dirname, 'public', 'admin.html')); });
-app.get('/user', requireLogin('user'), (req, res) => { res.sendFile(path.join(__dirname, 'public', 'user.html')); });
-app.get('/login.html', (req, res) => { res.sendFile(path.join(__dirname, 'public', 'login.html')); });
+app.get('/', (req, res) => {
+    // Redirect to /user instead of login
+    res.redirect('/user');
+});
+app.get('/admin', requireLogin('admin'), (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+app.get('/user', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'user.html'));
+});
+app.get('/login.html', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
 
 // --- Error Handling ---
 app.use((err, req, res, next) => { console.error(err.stack); res.status(500).send('Something broke on the server!'); });
 
 // --- MEMBER POSITIONS API ---
-app.get('/api/member-positions/:memberName', requireLogin(), async (req, res) => {
+app.get('/api/member-positions/:memberName', async (req, res) => { /* ... logic unchanged ... */
     const memberName = decodeURIComponent(req.params.memberName);
     try {
         const [positions] = await pool.query(
-            `SELECT p.id, p.name 
+            `SELECT p.id, p.name
              FROM positions p
              INNER JOIN member_positions mp ON p.id = mp.position_id
              WHERE mp.member_name = ?
@@ -357,7 +374,7 @@ app.get('/api/member-positions/:memberName', requireLogin(), async (req, res) =>
     }
 });
 
-app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req, res) => {
+app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
     const memberName = decodeURIComponent(req.params.memberName);
     const { positionIds } = req.body; // Array of position IDs
     
@@ -392,44 +409,31 @@ app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req,
     }
 });
 
-// <<< NEW: Endpoint to get all member-position relationships >>>
-app.get('/api/all-member-positions', requireLogin(), async (req, res) => {
+// GET (all members) is now public (needed for qualification check in user view)
+app.get('/api/all-member-positions', async (req, res) => { /* ... logic unchanged ... */
     try {
-        // Fetch member name and associated position details (ID and Name)
         const [rows] = await pool.query(
             `SELECT mp.member_name, p.id as position_id, p.name as position_name
              FROM member_positions mp
              JOIN positions p ON mp.position_id = p.id
              ORDER BY mp.member_name, p.display_order, p.name`
         );
-
-        // Group the results by member name
         const allMemberPositions = rows.reduce((acc, row) => {
             if (!acc[row.member_name]) {
                 acc[row.member_name] = [];
             }
             acc[row.member_name].push({ id: row.position_id, name: row.position_name });
             return acc;
-        }, {}); // Start with an empty object
-
-        res.json(allMemberPositions); // Send as { memberName: [{id, name}, ...], ... }
-
+        }, {});
+        res.json(allMemberPositions);
     } catch (error) {
         console.error('Error fetching all member positions:', error);
         res.status(500).json({ message: 'Server error fetching all member positions.' });
     }
 });
 
-// --- Start Server ---
-app.listen(PORT, () => {
-    console.log(`Server running on http://localhost:${PORT}`);
-    pool.query('SELECT 1').then(() => console.log('Database connection successful.')).catch(err => console.error('Database connection failed:', err));
-});
-
-// Add these new API endpoints
-
-// Get all held assignments
-app.get('/api/held-assignments', requireLogin(), async (req, res) => {
+// --- HELD ASSIGNMENTS API ---
+app.get('/api/held-assignments', async (req, res) => { /* ... logic unchanged ... */
     try {
         const [assignments] = await pool.query(
             'SELECT * FROM held_assignments ORDER BY assignment_date'
@@ -441,8 +445,7 @@ app.get('/api/held-assignments', requireLogin(), async (req, res) => {
     }
 });
 
-// Save held assignments
-app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => {
+app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
     const { assignments } = req.body; // Array of {date, position_name, member_name}
     const connection = await pool.getConnection();
     
@@ -478,8 +481,7 @@ app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => {
     }
 });
 
-// Delete held assignments for a specific date
-app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res) => {
+app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
     const { date } = req.params;
     
     try {
@@ -489,4 +491,10 @@ app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res
         console.error('Error deleting held assignments:', error);
         res.status(500).send('Server error deleting held assignments.');
     }
+});
+
+// --- Start Server ---
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
+    pool.query('SELECT 1').then(() => console.log('Database connection successful.')).catch(err => console.error('Database connection failed:', err));
 });

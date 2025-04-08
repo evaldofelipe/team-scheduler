@@ -9,14 +9,14 @@
 <body>
 <div id="scheduler">
     <div id="calendar-view">
-         <div id="calendar-header"> <!-- Button moved inside here -->
+         <div id="calendar-header">
              <div id="calendar-nav-buttons">
                  <button id="prevMonthBtn">< Prev</button>
                  <button id="nextMonthBtn">Next ></button>
              </div>
             <h2 id="monthYearHeader">Month Year</h2>
-            <button id="logoutBtn">Logout</button>
-            <button id="theme-toggle">🌓 Toggle Theme</button> <!-- MOVED HERE -->
+            <button id="adminLoginBtn" onclick="window.location.href='/login.html'">Admin Login</button>
+            <button id="theme-toggle">🌓 Toggle Theme</button>
         </div>
         <table id="calendar">
             <thead>
@@ -24,9 +24,9 @@
             </thead>
             <tbody id="calendar-body"></tbody>
         </table>
+        <ul id="calendar-body-mobile" style="display: none;"></ul>
     </div>
 </div>
 <script src="user.js"></script>
-<!-- REMOVED BUTTON FROM HERE -->
 </body>
 </html>
