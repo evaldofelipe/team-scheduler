@@ -348,49 +348,181 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 
 // --- Action Functions (Call APIs & Update UI) ---
 
-// Generic helper - Modified error parsing slightly
+// Generic helper - Modified to add more logging
 async function apiCall(url, options, successCallback, errorCallback) {
+    console.log(`Making API call to ${url}`, options); // Debug logging
     try {
         const response = await fetch(url, options);
+        console.log(`Response status: ${response.status}`); // Debug logging
 
-        if (response.status === 401 || response.status === 403) { /* ... redirect ... */ window.location.href = '/login.html?message=Session expired...'; return; }
-
-        if (response.ok || (options.method === 'DELETE' && response.status === 404)) {
-             if (await fetchData()) { if(successCallback) successCallback(); }
-        } else {
-             let errorData = null; let errorText = `Operation failed (${response.status} ${response.statusText})`;
-             try { errorData = await response.json(); errorText = errorData.message || errorData.error || errorText; }
-             catch(e) { try { const text = await response.text(); if (text && !text.trim().startsWith('<')) errorText = text; } catch(e2) {} }
-
-             console.error(`API Error for ${url}: ${errorText}`, errorData);
-             if (errorCallback) { errorCallback(errorText); } else { alert(errorText); }
+        if (response.status === 401 || response.status === 403) {
+            window.location.href = '/login.html?message=Session expired...';
+            return false;
         }
-    } catch (error) { console.error(`Network error for ${url}:`, error); if (errorCallback) { errorCallback("A network error occurred."); } else { alert("A network error occurred."); } }
+
+        const isSuccess = response.ok || (options.method === 'DELETE' && response.status === 404);
+        
+        if (isSuccess) {
+            console.log('API call successful, fetching updated data...'); // Debug logging
+            // First refresh the data
+            const dataRefreshed = await fetchData();
+            
+            if (dataRefreshed) {
+                console.log('Data refresh successful, updating UI...'); // Debug logging
+                // Update all relevant UI components
+                renderTeamList();
+                renderPositionList();
+                renderUnavailableList();
+                renderOverrideDaysList();
+                renderSpecialAssignmentsList();
+                renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+                
+                if (successCallback) successCallback();
+                return true;
+            }
+        } else {
+            let errorText = `Operation failed (${response.status})`;
+            try {
+                const errorData = await response.json();
+                errorText = errorData.message || errorData.error || errorText;
+            } catch (e) {
+                try {
+                    const text = await response.text();
+                    if (text && !text.trim().startsWith('<')) errorText = text;
+                } catch(e2) {}
+            }
+            
+            console.error(`API Error:`, errorText); // Debug logging
+            if (errorCallback) {
+                errorCallback(errorText);
+            } else {
+                alert(errorText);
+            }
+            return false;
+        }
+    } catch (error) {
+        console.error(`Network error:`, error); // Debug logging
+        if (errorCallback) {
+            errorCallback("A network error occurred.");
+        } else {
+            alert("A network error occurred.");
+        }
+        return false;
+    }
 }
 
-// --- Member Actions --- (Unchanged)
-async function addMember() { /* ... */ } async function removeMember(nameToRemove) { /* ... */ }
+// --- Member Actions ---
+async function addMember() {
+    console.log('Adding member...'); // Debug logging
+    const name = memberNameInput.value.trim();
+    if (!name) {
+        alert('Please enter a member name.');
+        return;
+    }
+
+    await apiCall('/api/team-members', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+
+    // Clear input only after successful addition
+    memberNameInput.value = '';
+    memberNameInput.focus();
+}
 
 // --- Position Actions ---
 async function addPosition() {
-    // Simplified: Just add by name, default type is 'regular' via DB/API
+    console.log('Adding position...'); // Debug logging
     const name = positionNameInput.value.trim();
-    if (!name) { alert('Please enter a position name.'); return; }
-    positionNameInput.value = ''; positionNameInput.focus();
+    if (!name) {
+        alert('Please enter a position name.');
+        return;
+    }
+
     await apiCall('/api/positions', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name })
-    }, () => {
-        // Re-fetch in apiCall triggers renderPositionList & renderCalendar
-        positionFeedbackMessage.textContent = `Position '${name}' added successfully. Configure days if needed.`;
-        positionFeedbackMessage.className = 'feedback-message success';
-        setTimeout(() => { positionFeedbackMessage.textContent = ''; positionFeedbackMessage.className = 'feedback-message'; }, 4000);
-    }, (errorText) => {
-        positionFeedbackMessage.textContent = `Error adding position: ${errorText}`;
-        positionFeedbackMessage.className = 'feedback-message error';
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+    });
+
+    // Clear input only after successful addition
+    positionNameInput.value = '';
+    positionNameInput.focus();
+}
+
+// --- Unavailability Actions ---
+async function addUnavailability() {
+    console.log('Adding unavailability...'); // Debug logging
+    const date = unavailabilityDateInput.value;
+    const member = unavailabilityMemberSelect.value;
+    
+    if (!date || !member) {
+        alert('Please select both a date and a member.');
+        return;
+    }
+
+    await apiCall('/api/unavailability', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, member })
+    });
+
+    // Clear inputs only after successful addition
+    unavailabilityDateInput.value = '';
+    unavailabilityMemberSelect.value = '';
+}
+
+// --- Override Day Actions ---
+async function addOverrideDay() {
+    console.log('Add override day button clicked'); // Add logging
+    const date = overrideDateInput.value;
+    if (!date) {
+        alert('Please select a date.');
+        return;
+    }
+    
+    await apiCall('/api/overrides', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date })
+    });
+    
+    overrideDateInput.value = '';
+}
+
+// --- Special Assignment Actions ---
+async function addSpecialAssignment() {
+    console.log('Add special assignment button clicked'); // Add logging
+    const date = specialAssignmentDateInput.value;
+    const position_id = specialAssignmentPositionSelect.value;
+    
+    if (!date || !position_id) {
+        alert('Please select both a date and a position.');
+        return;
+    }
+    
+    await apiCall('/api/special-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, position_id })
+    });
+    
+    // Clear inputs after successful addition
+    specialAssignmentDateInput.value = '';
+    specialAssignmentPositionSelect.value = '';
+}
+
+// --- Member Actions ---
+async function removeMember(nameToRemove) {
+    if (!confirm(`Remove team member: "${nameToRemove}"?`)) return;
+    
+    await apiCall(`/api/team-members/${encodeURIComponent(nameToRemove)}`, {
+        method: 'DELETE'
     });
 }
 
-// <<< NEW: Update Position >>>
+// --- Position Actions ---
 async function updatePosition(positionId) {
     const listItem = positionList.querySelector(`li[data-position-id="${positionId}"]`);
     if (!listItem) { console.error("Could not find list item for position ID:", positionId); return; }
@@ -446,22 +578,88 @@ async function updatePosition(positionId) {
 }
 
 
-async function removePosition(positionId) { /* ... Confirmation + apiCall ... */
-    const positionToRemove = positions.find(p => p.id === positionId); if (!positionToRemove || !confirm(`Remove Position: "${positionToRemove.name}"? Also removes special slots.`)) return;
-    await apiCall(`/api/positions/${positionId}`, { method: 'DELETE' }, () => { /* re-fetch/re-render handled by apiCall */ }, (errorText) => { positionFeedbackMessage.textContent = `Error removing position: ${errorText}`; positionFeedbackMessage.className = 'feedback-message error'; });
+async function removePosition(positionId) {
+    const positionToRemove = positions.find(p => p.id === positionId);
+    if (!positionToRemove || !confirm(`Remove Position: "${positionToRemove.name}"? Also removes special slots.`)) return;
+    
+    await apiCall(`/api/positions/${positionId}`, {
+        method: 'DELETE'
+    });
 }
 
-// --- Unavailability Actions --- (Unchanged)
-async function addUnavailability() { /* ... */ } async function removeUnavailability(idToRemove) { /* ... */ }
+// --- Unavailability Actions ---
+async function removeUnavailability(idToRemove) {
+    if (!confirm('Remove this unavailability entry?')) return;
+    
+    await apiCall(`/api/unavailability/${idToRemove}`, {
+        method: 'DELETE'
+    });
+}
 
-// --- Override Day Actions --- (Unchanged)
-async function addOverrideDay() { /* ... */ } async function removeOverrideDay(dateStr) { /* ... */ }
+// --- Override Day Actions ---
+async function removeOverrideDay(dateStr) {
+    if (!confirm(`Remove override day: ${new Date(dateStr).toLocaleDateString()}?`)) return;
+    
+    await apiCall(`/api/overrides/${dateStr}`, {
+        method: 'DELETE'
+    });
+}
 
-// --- Special Assignment Actions --- (Unchanged)
-async function addSpecialAssignment() { /* ... */ } async function removeSpecialAssignment(idToRemove) { /* ... */ }
+// --- Special Assignment Actions ---
+async function removeSpecialAssignment(idToRemove) {
+    if (!confirm('Remove this special assignment?')) return;
+    
+    await apiCall(`/api/special-assignments/${idToRemove}`, {
+        method: 'DELETE'
+    });
+}
 
-// --- User Management Actions --- (Unchanged)
-async function addUser() { /* ... */ }
+// --- User Management Actions ---
+async function addUser() {
+    console.log('Adding new user...'); // Debug logging
+    
+    const username = newUsernameInput.value.trim();
+    const password = newPasswordInput.value.trim();
+    const role = newUserRoleSelect.value;
+
+    // Validation
+    if (!username || !password) {
+        userFeedbackMessage.textContent = 'Username and password are required.';
+        userFeedbackMessage.className = 'feedback-message error';
+        return;
+    }
+
+    if (password.length < 6) {
+        userFeedbackMessage.textContent = 'Password must be at least 6 characters long.';
+        userFeedbackMessage.className = 'feedback-message error';
+        return;
+    }
+
+    await apiCall('/api/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password, role })
+    }, () => {
+        // Success callback
+        userFeedbackMessage.textContent = `User '${username}' created successfully.`;
+        userFeedbackMessage.className = 'feedback-message success';
+        
+        // Clear inputs
+        newUsernameInput.value = '';
+        newPasswordInput.value = '';
+        newUserRoleSelect.value = 'user'; // Reset to default role
+        
+        // Clear success message after a delay
+        setTimeout(() => {
+            userFeedbackMessage.textContent = '';
+            userFeedbackMessage.className = 'feedback-message';
+        }, 4000);
+    }, (errorText) => {
+        // Error callback
+        userFeedbackMessage.textContent = `Error creating user: ${errorText}`;
+        userFeedbackMessage.className = 'feedback-message error';
+    });
+}
 
 // --- Logout --- (Unchanged)
 async function logout() { /* ... */ }
@@ -482,7 +680,12 @@ addOverrideDayBtn.addEventListener('click', addOverrideDay); overrideDateInput.a
 // Special Assignment listener (Unchanged)
 addSpecialAssignmentBtn.addEventListener('click', addSpecialAssignment);
 // User listener (Unchanged)
-addUserBtn.addEventListener('click', addUser); newPasswordInput.addEventListener('keypress', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); addUser();} });
+addUserBtn.addEventListener('click', addUser); newPasswordInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        addUser();
+    }
+});
 
 // --- Theme Toggle --- (Unchanged)
 function initializeTheme() { /* ... */ } function toggleTheme() { /* ... */ } const themeToggleBtn = document.getElementById('theme-toggle'); if (themeToggleBtn) { themeToggleBtn.addEventListener('click', toggleTheme); } else { console.warn("Theme toggle button not found."); }
