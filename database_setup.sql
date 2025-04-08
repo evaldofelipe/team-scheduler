@@ -102,5 +102,31 @@ INSERT INTO users (username, password, role) VALUES
 -- INSERT INTO unavailability (member_name, unavailable_date) VALUES ('Bob', '2024-03-20')
 -- ON DUPLICATE KEY UPDATE member_name=member_name;
 
--- Add new columns to existing positions table if they don't exist
-ALTER TABLE positions ADD COLUMN IF NOT EXISTS assignment_type ENUM('regular', 'specific_days') NOT NULL DEFAULT 'regular', ADD COLUMN IF NOT EXISTS allowed_days VARCHAR(15) NULL DEFAULT NULL;
+-- Check and add columns if they don't exist
+SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE positions ADD COLUMN assignment_type ENUM("regular", "specific_days") NOT NULL DEFAULT "regular"',
+    'SELECT "Column assignment_type already exists"'
+) INTO @sql
+FROM INFORMATION_SCHEMA.COLUMNS 
+WHERE TABLE_SCHEMA = DATABASE() 
+AND TABLE_NAME = 'positions' 
+AND COLUMN_NAME = 'assignment_type';
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE positions ADD COLUMN allowed_days VARCHAR(15) NULL DEFAULT NULL',
+    'SELECT "Column allowed_days already exists"'
+) INTO @sql
+FROM INFORMATION_SCHEMA.COLUMNS 
+WHERE TABLE_SCHEMA = DATABASE() 
+AND TABLE_NAME = 'positions' 
+AND COLUMN_NAME = 'allowed_days';
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
