@@ -5,11 +5,29 @@ const mysql = require('mysql2/promise');
 const session = require('express-session');
 const path = require('path');
 const bcrypt = require('bcrypt');
+const twilio = require('twilio'); // <<< ADDED: Twilio library
 
 // --- Configuration ---
 const PORT = process.env.PORT || 3000;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'default-insecure-secret-change-me';
 const SALT_ROUNDS = parseInt(process.env.SALT_ROUNDS || '10');
+// <<< ADDED: Twilio Credentials >>>
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
+const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
+// <<< ADDED: New Env Variables >>>
+const APP_URL = process.env.APP_URL || 'http://localhost:' + PORT; // Default to localhost if not set
+const SMS_BODY_TEMPLATE = process.env.SMS_BODY_TEMPLATE || '[Schedule] You are scheduled on {DATE} at {TIME}! Check: {APP_URL}';
+const SMS_GENERIC_TEMPLATE = process.env.SMS_GENERIC_TEMPLATE || '[Schedule] Reminder: Please check your schedule at {APP_URL}'; // For individual button
+
+// <<< ADDED: Backend equivalent of default times and days >>>
+const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat (0=Sun, 6=Sat)
+const REGULAR_TIMES = { // Map for regular day times
+    0: '19:30', // Sun
+    3: '19:30', // Wed
+    6: '09:30'  // Sat
+};
+// <<< END ADDED >>>
 
 const dbConfig = {
     host: process.env.DB_HOST || 'localhost',
@@ -34,10 +52,33 @@ if (!process.env.DB_USER || !process.env.DB_PASSWORD) {
     console.warn('WARNING: DB_USER or DB_PASSWORD not found in .env. Using potentially insecure defaults.');
     console.warn('************************************************************************');
 }
+// <<< ADDED: Twilio Credentials Check >>>
+if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_MESSAGING_SERVICE_SID) {
+    console.warn('************************************************************************');
+    console.warn('WARNING: Twilio credentials (SID, Token, MessagingServiceSID) not found in .env.');
+    console.warn('SMS functionality will not work.');
+    console.warn('************************************************************************');
+}
+// <<< ADDED: Check for APP_URL (optional warning) >>>
+if (!process.env.APP_URL) {
+    console.warn('************************************************************************');
+    console.warn(`WARNING: APP_URL not set in .env. Defaulting to ${APP_URL}`);
+    console.warn('************************************************************************');
+}
 
 // --- Express App Setup ---
 const app = express();
 const pool = mysql.createPool(dbConfig);
+// <<< ADDED: Initialize Twilio Client (only if credentials exist) >>>
+let twilioClient = null;
+if (TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN) {
+    try {
+        twilioClient = twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN);
+        console.log('Twilio client initialized.');
+    } catch (error) {
+        console.error('Failed to initialize Twilio client:', error);
+    }
+}
 
 // --- Middleware ---
 app.use(express.json());
@@ -675,6 +716,203 @@ app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res
         res.status(500).send('Server error deleting held assignments.');
     }
 });
+
+// <<< MODIFIED: Individual Notification Endpoint (Sends Generic Message) >>>
+app.post('/api/notify-member/:name', requireLogin('admin'), async (req, res) => {
+    const memberName = decodeURIComponent(req.params.name);
+
+    if (!twilioClient) {
+        return res.status(503).json({ success: false, message: 'SMS service is not configured or available.' });
+    }
+
+    try {
+        const [members] = await pool.query('SELECT phone_number FROM team_members WHERE name = ?', [memberName]);
+        if (members.length === 0) {
+            return res.status(404).json({ success: false, message: `Member '${memberName}' not found.` });
+        }
+        const phoneNumber = members[0].phone_number;
+        if (!phoneNumber) {
+            return res.status(400).json({ success: false, message: `Member '${memberName}' does not have a phone number.` });
+        }
+        if (!/^\+?[1-9]\d{1,14}$/.test(phoneNumber)) {
+             console.warn(`Invalid phone number format for ${memberName}: ${phoneNumber}`);
+        }
+
+        // --- Construct Generic Message ---
+        const messageBody = SMS_GENERIC_TEMPLATE.replace('{APP_URL}', APP_URL);
+        // --- End Construct ---
+
+        console.log(`Attempting to send generic SMS to ${memberName} (${phoneNumber})`);
+        const message = await twilioClient.messages.create({
+            body: messageBody, // Use the generic template
+            messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
+            to: phoneNumber
+        });
+
+        console.log(`Generic SMS sent successfully to ${memberName}. SID: ${message.sid}`);
+        res.json({ success: true, message: `Generic reminder SMS sent to ${memberName}.` }); // Updated success message
+
+    } catch (error) {
+        console.error(`Error sending generic SMS to ${memberName}:`, error);
+        const errorMessage = error.message || 'Server error sending SMS.';
+        const statusCode = error.status || 500;
+        res.status(statusCode).json({ success: false, message: `Failed to send SMS: ${errorMessage}` });
+    }
+});
+
+// <<< MODIFIED: Bulk Notification Endpoint with Date and Time Context >>>
+app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
+    const { notifications } = req.body; // Expecting array: [{ memberName, date }, ...]
+
+    if (!twilioClient) {
+        return res.status(503).json({ success: false, message: 'SMS service is not configured or available.' });
+    }
+    if (!Array.isArray(notifications) || notifications.length === 0) {
+        return res.status(400).json({ success: false, message: 'Invalid request body. Expected an array of notifications.' });
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+    const results = [];
+    const delayMs = 1100; // Delay between messages
+
+    console.log(`Starting bulk dynamic SMS for ${notifications.length} notifications.`);
+
+    // --- Pre-fetch all relevant override times for efficiency ---
+    const datesInRequest = [...new Set(notifications.map(n => n.date).filter(Boolean))];
+    const overrideTimesMap = new Map();
+    if (datesInRequest.length > 0) {
+        try {
+            const [overrideRows] = await pool.query(
+                'SELECT override_date, override_time FROM override_assignment_days WHERE override_date IN (?) AND override_time IS NOT NULL',
+                [datesInRequest]
+            );
+            overrideRows.forEach(row => {
+                overrideTimesMap.set(row.override_date, row.override_time); // Store as YYYY-MM-DD -> HH:MM:SS
+            });
+        } catch (dbError) {
+            console.error("Error fetching override times:", dbError);
+            // Proceed without override times, but log the error
+        }
+    }
+    // --- End pre-fetch ---
+
+
+    for (let i = 0; i < notifications.length; i++) {
+        const { memberName, date } = notifications[i];
+        let status = 'failed';
+        let detail = 'Unknown error';
+        let phoneNumber = null;
+        let eventTime = null; // <<< Variable to hold the determined time
+
+        if (!memberName || !date) {
+            console.warn(`Skipping notification ${i + 1}: Missing memberName or date.`);
+            detail = 'Missing memberName or date in request item.';
+            failureCount++;
+            results.push({ memberName, date, status, detail });
+            // Apply delay even if skipped to maintain timing
+            if (i < notifications.length - 1) await new Promise(resolve => setTimeout(resolve, delayMs));
+            continue;
+        }
+
+        try {
+            // 1. Get phone number
+            const [members] = await pool.query('SELECT phone_number FROM team_members WHERE name = ?', [memberName]);
+            if (members.length === 0) {
+                detail = `Member '${memberName}' not found.`;
+                failureCount++;
+            } else {
+                phoneNumber = members[0].phone_number;
+                if (!phoneNumber) {
+                    detail = `Member '${memberName}' has no phone number.`;
+                    failureCount++;
+                } else if (!/^\+?[1-9]\d{1,14}$/.test(phoneNumber)) {
+                    console.warn(`Invalid phone number format for ${memberName}: ${phoneNumber}`);
+                    detail = `Invalid phone number format for '${memberName}'.`;
+                    // Decide whether to attempt sending or mark as failure immediately
+                    failureCount++; // Mark as failure if format is clearly wrong
+                    phoneNumber = null; // Prevent sending attempt
+                }
+            }
+
+            // 2. Determine Event Time
+            if (phoneNumber) { // Only determine time if we might send a message
+                const overrideTime = overrideTimesMap.get(date);
+                if (overrideTime) {
+                    // Format HH:MM:SS from DB to HH:MM
+                    eventTime = overrideTime.substring(0, 5);
+                } else {
+                    // Check default times if not an override
+                    try {
+                        const dateObj = new Date(date + 'T00:00:00Z'); // Treat as UTC
+                        const dayOfWeek = dateObj.getUTCDay(); // 0 = Sunday, 6 = Saturday
+                        if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) && REGULAR_TIMES[dayOfWeek]) {
+                            eventTime = REGULAR_TIMES[dayOfWeek];
+                        }
+                    } catch (dateError) {
+                        console.warn(`Could not determine day of week for date ${date}:`, dateError);
+                    }
+                }
+            }
+
+            // 3. Send SMS if phone number is valid
+            if (phoneNumber) {
+                // Format the date nicely (e.g., DD/MM/YYYY)
+                let formattedDate = date;
+                try {
+                    const dateObj = new Date(date + 'T00:00:00Z');
+                    if (!isNaN(dateObj)) {
+                        formattedDate = dateObj.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+                    }
+                } catch (formatError) {
+                    console.warn(`Could not reformat date ${date}:`, formatError);
+                }
+
+                // Construct message body, replacing placeholders
+                const messageBody = SMS_BODY_TEMPLATE
+                    .replace('{DATE}', formattedDate)
+                    .replace('{TIME}', eventTime || 'horário habitual') // Use determined time or a fallback
+                    .replace('{APP_URL}', APP_URL);
+
+                console.log(`  ${i + 1}/${notifications.length}: Sending to ${memberName} (${phoneNumber}) for date ${formattedDate} at ${eventTime || 'N/A'}`);
+                const message = await twilioClient.messages.create({
+                    body: messageBody,
+                    messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
+                    to: phoneNumber
+                });
+                console.log(`    -> SID: ${message.sid}`);
+                status = 'success';
+                detail = `SMS sent (SID: ${message.sid})`;
+                successCount++;
+            } else {
+                 console.log(`  ${i + 1}/${notifications.length}: Skipping ${memberName} due to missing/invalid phone number.`);
+                 // Failure already counted above
+            }
+
+        } catch (error) {
+            console.error(`  ${i + 1}/${notifications.length}: Error sending SMS to ${memberName}:`, error);
+            detail = `Twilio error: ${error.message || 'Unknown'}`;
+            failureCount++;
+            status = 'failed';
+        }
+
+        results.push({ memberName, date, status, detail, eventTime }); // Optionally include time in results
+
+        // Delay before next iteration
+        if (i < notifications.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+    } // End loop
+
+    console.log(`Bulk dynamic SMS complete. Success: ${successCount}, Failed: ${failureCount}`);
+    res.json({
+        success: failureCount === 0,
+        successCount,
+        failureCount,
+        results
+    });
+});
+// <<< END MODIFIED Endpoint >>>
 
 // --- Start Server ---
 app.listen(PORT, () => {

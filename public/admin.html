@@ -143,6 +143,10 @@
              </div>
             <h2 id="monthYearHeader">Month Year</h2>
             <button id="randomizeBtn">Randomize Assignments</button>
+            <div id="notify-day-controls">
+                <input type="date" id="notifyDayDateInput" title="Select date to notify assigned members">
+                <button id="notifyDayBtn" title="Send SMS to all members assigned on selected date">Notify Day</button>
+            </div>
             <button id="logoutBtn">Logout</button>
             <button id="theme-toggle">🌓 Toggle Theme</button>
         </div>
@@ -152,6 +156,7 @@
             </thead>
             <tbody id="calendar-body"></tbody>
         </table>
+        <ul id="calendar-body-mobile" style="display: none;"></ul>
     </div> <!-- END #calendar-view -->
 </div> <!-- END #scheduler -->
 

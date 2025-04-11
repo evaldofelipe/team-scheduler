@@ -1,6 +1,7 @@
 // --- DOM Elements ---
 const monthYearHeader = document.getElementById('monthYearHeader');
 const calendarBody = document.getElementById('calendar-body');
+const calendarBodyMobile = document.getElementById('calendar-body-mobile');
 const prevMonthBtn = document.getElementById('prevMonthBtn');
 const nextMonthBtn = document.getElementById('nextMonthBtn');
 const randomizeBtn = document.getElementById('randomizeBtn');
@@ -37,6 +38,8 @@ const newUserRoleSelect = document.getElementById('newUserRole');
 const addUserBtn = document.getElementById('addUserBtn');
 const userFeedbackMessage = document.getElementById('user-feedback-message');
 // Theme Toggle (Button itself is selected below)
+const notifyDayDateInput = document.getElementById('notifyDayDateInput');
+const notifyDayBtn = document.getElementById('notifyDayBtn');
 
 // --- State Variables ---
 let currentDate = new Date();
@@ -65,6 +68,7 @@ function shuffleArray(array) { /* ... unchanged ... */
 function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
      try { const date = new Date(dateInput); const year = date.getUTCFullYear(); const month = String(date.getUTCMonth() + 1).padStart(2, '0'); const day = String(date.getUTCDate()).padStart(2, '0'); return `${year}-${month}-${day}`; } catch (e) { return ""; }
 }
+const delay = ms => new Promise(res => setTimeout(res, ms));
 
 // --- API Interaction Functions ---
 async function fetchData() {
@@ -167,6 +171,15 @@ function renderTeamList() {
 
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'member-actions';
+
+        if (member.phone_number) {
+            const smsBtn = document.createElement('button');
+            smsBtn.textContent = '✉️';
+            smsBtn.className = 'sms-member-btn';
+            smsBtn.title = `Send SMS notification to ${member.name}`;
+            smsBtn.onclick = (event) => sendSmsNotification(member.name, event.target);
+            actionsDiv.appendChild(smsBtn);
+        }
 
         const editBtn = document.createElement('button');
         editBtn.textContent = 'Edit';
@@ -1588,3 +1601,236 @@ else console.warn("Save Holds button not found");
 
 if (clearHoldsBtn) clearHoldsBtn.addEventListener('click', clearAllHolds);
 else console.warn("Clear Holds button not found");
+
+async function handleNotifyDay() {
+    const selectedDate = notifyDayDateInput.value;
+    if (!selectedDate) {
+        alert('Please select a date first.');
+        return;
+    }
+
+    console.log(`[Notify Day] Finding members assigned on ${selectedDate}`);
+    const membersToNotify = new Set(); // Use Set to store unique member names
+
+    // --- Helper function to extract name ---
+    const extractMemberName = (assignmentDiv) => {
+        if (!assignmentDiv || !assignmentDiv.textContent) return null;
+
+        // Check if it's a skipped assignment first
+        if (assignmentDiv.classList.contains('assignment-skipped')) {
+            console.log(`[Notify Day] Skipping element with text: ${assignmentDiv.textContent} (skipped class)`);
+            return null;
+        }
+        /* <<< REMOVED/COMMENTED OUT: Check for held assignments >>>
+        // Check if it's a held assignment (we usually don't notify held ones automatically)
+        if (assignmentDiv.classList.contains('held')) {
+             console.log(`[Notify Day] Skipping element with text: ${assignmentDiv.textContent} (held class)`);
+             return null; // Now we WANT to include held members
+        }
+        */ // <<< END REMOVED/COMMENTED OUT >>>
+
+
+        // Try splitting by ':' - robust check
+        const textParts = assignmentDiv.textContent.split(':');
+        if (textParts.length > 1) {
+            const potentialName = textParts[1].trim();
+            // Ensure it's not an empty string or a placeholder like "(Unavailable...)"
+            if (potentialName && !potentialName.startsWith('(')) {
+                // Log whether it was held or not for clarity
+                const isHeld = assignmentDiv.classList.contains('held');
+                console.log(`[Notify Day] Extracted name: "${potentialName}" from text: "${assignmentDiv.textContent}" (Held: ${isHeld})`);
+                return potentialName;
+            } else {
+                 console.log(`[Notify Day] Skipping element with text: ${assignmentDiv.textContent} (placeholder or empty after split)`);
+                 return null;
+            }
+        } else {
+            console.log(`[Notify Day] Skipping element with text: ${assignmentDiv.textContent} (could not split by ':')`);
+            return null; // Format doesn't match "Position: Name"
+        }
+    };
+    // --- End helper function ---
+
+
+    // --- Find members in Desktop View ---
+    const desktopCell = calendarBody.querySelector(`td[data-date="${selectedDate}"]`);
+    if (desktopCell) {
+        console.log(`[Notify Day] Checking desktop cell for ${selectedDate}`);
+        const desktopAssignments = desktopCell.querySelectorAll('.assigned-position'); // Only target assigned positions
+        console.log(`[Notify Day] Found ${desktopAssignments.length} potential desktop assignments.`);
+        desktopAssignments.forEach(div => {
+            const memberName = extractMemberName(div);
+            if (memberName) {
+                membersToNotify.add(memberName);
+            }
+        });
+    } else {
+         console.log(`[Notify Day] No desktop cell found for ${selectedDate}`);
+    }
+
+    // --- Find members in Mobile View ---
+    if (calendarBodyMobile) {
+        const mobileDayItem = calendarBodyMobile.querySelector(`li[data-date="${selectedDate}"]`);
+        if (mobileDayItem) {
+            console.log(`[Notify Day] Checking mobile list item for ${selectedDate}`);
+            const mobileAssignments = mobileDayItem.querySelectorAll('.assigned-position'); // Only target assigned positions
+            console.log(`[Notify Day] Found ${mobileAssignments.length} potential mobile assignments.`);
+            mobileAssignments.forEach(div => {
+                const memberName = extractMemberName(div);
+                if (memberName) {
+                    membersToNotify.add(memberName);
+                }
+            });
+        } else {
+             console.log(`[Notify Day] No mobile list item found for ${selectedDate}`);
+        }
+    } else {
+         console.log("[Notify Day] Mobile calendar body not found.");
+    }
+
+    const uniqueMemberNames = Array.from(membersToNotify);
+    console.log(`[Notify Day] Final unique members found for ${selectedDate}:`, uniqueMemberNames); // Log the final list
+
+    if (uniqueMemberNames.length === 0) {
+        alert(`No members found assigned (and not held/skipped) on ${selectedDate} to notify.`); // More specific message
+        return;
+    }
+
+    // --- Create the data structure for the bulk endpoint ---
+    const notificationsPayload = uniqueMemberNames.map(name => ({
+        memberName: name,
+        date: selectedDate
+    }));
+
+    // Show the names in the confirmation dialog
+    if (!confirm(`Send dynamic SMS notification to ${uniqueMemberNames.length} member(s) for date ${selectedDate}?\n\nMembers:\n- ${uniqueMemberNames.join('\n- ')}`)) {
+        console.log("[Notify Day] User cancelled notification.");
+        return;
+    }
+
+    // Call the bulk sending function with the new payload
+    await sendBulkSmsNotifications(notificationsPayload, notifyDayBtn);
+}
+
+async function sendBulkSmsNotifications(notificationsPayload, buttonElement) {
+    const originalText = buttonElement.textContent;
+    const totalNotifications = notificationsPayload.length;
+    const delayMs = 1100;
+
+    buttonElement.disabled = true;
+    buttonElement.textContent = `Sending 0/${totalNotifications}...`;
+    buttonElement.title = `Sending notifications...`;
+
+    console.log(`Starting bulk dynamic SMS request for ${totalNotifications} notifications.`);
+
+    let finalSuccessCount = 0;
+    let finalFailureCount = 0;
+
+    try {
+        const response = await fetch(`/api/notify-bulk`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({ notifications: notificationsPayload })
+        });
+
+        const result = await response.json();
+
+        if (response.ok) {
+            finalSuccessCount = result.successCount || 0;
+            finalFailureCount = result.failureCount || 0;
+            console.log(`Bulk SMS request finished. Server reported: Success=${finalSuccessCount}, Failed=${finalFailureCount}`);
+            if (result.results) {
+                 console.log("Detailed results:", result.results);
+            }
+        } else {
+            console.error(`Bulk SMS request failed (${response.status}): ${result.message || 'Unknown server error'}`);
+            finalFailureCount = totalNotifications;
+            alert(`Failed to process bulk SMS request: ${result.message || 'Server error'}`);
+        }
+
+    } catch (error) {
+        console.error('Network error during bulk SMS request:', error);
+        finalFailureCount = totalNotifications;
+        alert('Network error occurred while sending bulk notifications. Please check the console.');
+    }
+
+    if (finalFailureCount === 0 && finalSuccessCount === totalNotifications) {
+        buttonElement.textContent = `Sent ${finalSuccessCount}/${totalNotifications} ✅`;
+        buttonElement.title = `All ${finalSuccessCount} notifications sent successfully.`;
+    } else {
+         buttonElement.textContent = `Sent ${finalSuccessCount}/${totalNotifications} (${finalFailureCount} failed) ❌`;
+         buttonElement.title = `${finalSuccessCount} sent, ${finalFailureCount} failed. Check server logs/console for details.`;
+    }
+
+    setTimeout(() => {
+        buttonElement.disabled = false;
+        buttonElement.textContent = originalText;
+        buttonElement.title = `Send SMS to all members assigned on selected date`;
+    }, 5000);
+}
+
+async function sendSmsNotification(memberName, buttonElement) {
+    if (!memberName) {
+        console.error("No member name provided for SMS notification.");
+        alert("Could not identify the member to notify.");
+        return;
+    }
+
+    const originalText = buttonElement.textContent;
+    buttonElement.textContent = '⏳';
+    buttonElement.disabled = true;
+    buttonElement.title = `Sending generic SMS to ${memberName}...`;
+
+    console.log(`Sending generic SMS notification to: ${memberName}`);
+
+    try {
+        const response = await fetch(`/api/notify-member/${encodeURIComponent(memberName)}`, {
+            method: 'POST',
+            headers: {
+                'Accept': 'application/json'
+            }
+        });
+
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            console.log(`Generic SMS Success: ${result.message}`);
+            buttonElement.title = `Generic SMS sent to ${memberName}!`;
+            buttonElement.textContent = '✅';
+            setTimeout(() => {
+                 buttonElement.textContent = originalText;
+                 buttonElement.title = `Send generic SMS notification to ${memberName}`;
+                 buttonElement.disabled = false;
+            }, 3000);
+        } else {
+            console.error(`Generic SMS Error (${response.status}): ${result.message}`);
+            alert(`Failed to send generic SMS to ${memberName}: ${result.message || 'Unknown error'}`);
+            buttonElement.textContent = '❌';
+            buttonElement.title = `Failed to send generic SMS: ${result.message || 'Unknown error'}`;
+            setTimeout(() => {
+                 buttonElement.textContent = originalText;
+                 buttonElement.title = `Send generic SMS notification to ${memberName}`;
+                 buttonElement.disabled = false;
+            }, 5000);
+        }
+    } catch (error) {
+        console.error('Network error sending generic SMS notification:', error);
+        alert(`Network error trying to send generic SMS to ${memberName}. Please check the console.`);
+        buttonElement.textContent = '❌';
+        buttonElement.title = `Network error sending generic SMS`;
+        setTimeout(() => {
+             buttonElement.textContent = originalText;
+             buttonElement.title = `Send generic SMS notification to ${memberName}`;
+             buttonElement.disabled = false;
+        }, 5000);
+    }
+}
+
+if (notifyDayBtn) {
+    notifyDayBtn.addEventListener('click', handleNotifyDay);
+} else {
+    console.warn("Notify Day button not found.");
+}

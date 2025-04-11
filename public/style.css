@@ -203,6 +203,21 @@ body {
 .member-actions button { padding: 3px 8px; font-size: 0.85em; }
 .member-actions .delete-member-btn { background: none; border: none; color: var(--delete-icon-color); font-size: 1.1em; padding: 0 5px; line-height: 1; }
 .member-actions .delete-member-btn:hover { color: var(--delete-icon-hover-color); background-color: var(--delete-icon-hover-bg); }
+.member-actions .sms-member-btn {
+    background-color: var(--button-default-bg); /* Or a different color like info */
+    border-color: var(--button-default-border);
+    color: var(--button-default-text);
+    padding: 3px 6px; /* Adjust padding for icon */
+    font-size: 1em; /* Adjust size for icon */
+    line-height: 1;
+}
+.member-actions .sms-member-btn:hover {
+    background-color: var(--button-hover-bg);
+}
+.member-actions .sms-member-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
 
 .member-positions {
     display: flex;
@@ -328,8 +343,8 @@ body {
     justify-content: space-between; /* Adjust as needed with new button */
     align-items: center;
     margin-bottom: 20px;
-    flex-wrap: wrap;
-    gap: 10px;
+    flex-wrap: wrap; /* Allow wrapping */
+    gap: 10px; /* Consistent gap */
     padding: 0 5px;
 }
 
@@ -342,7 +357,7 @@ body {
     font-weight: 600;
     order: 2; /* Month/Year second */
     text-align: center;
-    flex-grow: 1;
+    flex-grow: 1; /* Allow month/year to take space */
     min-width: 150px;
     transition: color 0.3s ease;
 }
@@ -351,7 +366,38 @@ body {
 #randomizeBtn { order: 3; background-color: var(--button-warn-bg); border-color: var(--button-warn-border); color: var(--button-warn-text); }
 #randomizeBtn:hover { background-color: var(--button-warn-hover-bg); }
 
-#logoutBtn { order: 4; background-color: var(--button-danger-bg); border-color: var(--button-danger-border); color: var(--button-danger-text); margin-left: auto; /* Push to right side before theme toggle */ }
+/* <<< ADDED: Styles for Notify Day Controls >>> */
+#notify-day-controls {
+    order: 4; /* Place after randomize */
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+#notify-day-controls input[type="date"] {
+    padding: 5px 8px; /* Match button padding */
+    font-size: 0.9em; /* Match button font size */
+    border: 1px solid var(--input-border-color);
+    background-color: var(--input-bg-color);
+    color: var(--text-primary);
+    border-radius: 5px;
+    max-width: 140px; /* Prevent input from becoming too wide */
+}
+#notifyDayBtn {
+    /* Inherits general button styles */
+    background-color: var(--button-primary-bg); /* Use primary color */
+    border-color: var(--button-primary-bg);
+    color: var(--button-primary-text);
+}
+#notifyDayBtn:hover {
+    background-color: var(--button-primary-hover-bg);
+}
+#notifyDayBtn:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+}
+/* <<< END ADDED >>> */
+
+#logoutBtn { order: 5; background-color: var(--button-danger-bg); border-color: var(--button-danger-border); color: var(--button-danger-text); /* Removed margin-left: auto */ }
 #logoutBtn:hover { background-color: var(--button-danger-hover-bg); }
 
 /* Default nav buttons */
@@ -361,7 +407,7 @@ body {
 
 /* --- Theme Toggle Button (POSITIONING IN HEADER) --- */
 #theme-toggle {
-    order: 5; /* Place it last in the header flex flow */
+    order: 6; /* Place it last in the header flex flow */
     margin-left: 10px; /* Space from logout button */
     background-color: var(--button-default-bg); /* Match other default buttons */
     border-color: var(--button-default-border);
@@ -1183,34 +1229,38 @@ body.login-page #theme-toggle {
 /* <<< END ADDED >>> */
 
 /* --- Mobile View Styles --- */
-/* ... */
-.mobile-day-header {
-    display: flex;
-    justify-content: space-between; /* Space out date and time */
-    align-items: center;
-    padding: 8px 10px;
-    background-color: var(--calendar-header-bg);
-    font-weight: bold;
-    border-bottom: 1px solid var(--border-color);
-    transition: background-color 0.3s ease, border-color 0.3s ease;
+@media (max-width: 600px) {
+    #calendar-header {
+        flex-direction: column; /* Stack header items */
+        align-items: stretch; /* Stretch items */
+        gap: 15px; /* Increase gap for vertical stacking */
+    }
+    #calendar-nav-buttons { order: 1; justify-content: center; }
+    #calendar-header h2 { order: 2; text-align: center; }
+    #randomizeBtn { order: 3; }
+    /* <<< ADDED: Stack notify controls on mobile >>> */
+    #notify-day-controls {
+        order: 4;
+        flex-direction: column; /* Stack input and button */
+        gap: 8px;
+        align-items: stretch; /* Stretch input/button */
+    }
+    #notify-day-controls input[type="date"] {
+        max-width: none; /* Allow full width */
+        text-align: center;
+    }
+    /* <<< END ADDED >>> */
+    #logoutBtn { order: 5; margin-left: 0; } /* Remove margin */
+    #theme-toggle { order: 6; margin-left: 0; align-self: center; } /* Center theme toggle */
+
+    /* Hide desktop calendar, show mobile list */
+    #calendar { display: none; }
+    #calendar-body-mobile { display: block; /* Show mobile list */ }
+
+    /* ... rest of mobile styles ... */
 }
 
-.mobile-date {
-    /* Existing style */
-}
-
-/* <<< ADDED: Mobile Event Time Styling >>> */
-.mobile-day-header .event-time {
-    position: static; /* Override absolute positioning */
-    font-size: 0.9em; /* Slightly larger for header */
-    padding: 0;
-    background-color: transparent;
-    color: var(--text-secondary); /* Use secondary text color */
-    font-weight: normal; /* Normal weight in header */
-}
-/* <<< END ADDED >>> */
-
-/* ... (rest of mobile styles) ... */
+/* ... rest of style.css ... */
 
 /* --- Admin Sidebar --- */
 /* ... */
