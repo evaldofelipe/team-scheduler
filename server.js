@@ -144,17 +144,124 @@ app.post('/logout', (req, res) => { /* ... unchanged ... */
 });
 
 // --- TEAM MEMBERS API ---
-app.get('/api/team-members', async (req, res) => { /* ... logic unchanged ... */
-    try { const [members] = await pool.query('SELECT name FROM team_members ORDER BY name'); res.json(members.map(m => m.name)); } catch (error) { console.error('Error fetching team members:', error); res.status(500).send('Server error fetching team members.'); }
+app.get('/api/team-members', async (req, res) => {
+    try {
+        // <<< MODIFIED: Select name and phone_number >>>
+        const [members] = await pool.query('SELECT name, phone_number FROM team_members ORDER BY name');
+        // <<< MODIFIED: Return array of objects >>>
+        res.json(members);
+    } catch (error) {
+        console.error('Error fetching team members:', error);
+        res.status(500).send('Server error fetching team members.');
+    }
 });
-app.post('/api/team-members', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
-    const { name } = req.body; if (!name) { return res.status(400).send('Member name is required.'); }
-    try { await pool.query('INSERT INTO team_members (name) VALUES (?)', [name]); res.status(201).json({ success: true, name }); } catch (error) { if (error.code === 'ER_DUP_ENTRY') { return res.status(409).send('Team member with this name already exists.'); } console.error('Error adding team member:', error); res.status(500).send('Server error adding team member.'); }
+
+app.post('/api/team-members', requireLogin('admin'), async (req, res) => {
+    // <<< MODIFIED: Destructure name and phone_number >>>
+    const { name, phone_number } = req.body;
+    if (!name) {
+        return res.status(400).send('Member name is required.');
+    }
+    const cleanPhoneNumber = phone_number ? phone_number.trim() : null;
+
+    try {
+        // <<< MODIFIED: Insert name and phone_number >>>
+        const [result] = await pool.query(
+            'INSERT INTO team_members (name, phone_number) VALUES (?, ?)',
+            [name, cleanPhoneNumber]
+        );
+        // <<< MODIFIED: Return the created member object >>>
+        res.status(201).json({ success: true, name, phone_number: cleanPhoneNumber });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).send('Team member with this name already exists.');
+        }
+        console.error('Error adding team member:', error);
+        res.status(500).send('Server error adding team member.');
+    }
 });
-app.delete('/api/team-members/:name', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
-    const name = decodeURIComponent(req.params.name); if (!name) { return res.status(400).send('Member name is required in URL.'); }
+
+// <<< ADDED: PUT endpoint to update member details >>>
+app.put('/api/team-members/:name', requireLogin('admin'), async (req, res) => {
+    const originalName = decodeURIComponent(req.params.name);
+    const { name: newName, phone_number } = req.body;
+
+    if (!newName) {
+        return res.status(400).json({ message: 'Member name is required.' });
+    }
+    const cleanPhoneNumber = phone_number ? phone_number.trim() : null;
+
+    try {
+        // Check if the member exists first
+        const [existing] = await pool.query('SELECT name FROM team_members WHERE name = ?', [originalName]);
+        if (existing.length === 0) {
+            return res.status(404).json({ message: `Member '${originalName}' not found.` });
+        }
+
+        // Update the member
+        const [result] = await pool.query(
+            'UPDATE team_members SET name = ?, phone_number = ? WHERE name = ?',
+            [newName, cleanPhoneNumber, originalName]
+        );
+
+        if (result.affectedRows > 0) {
+            // If name changed, related tables might need updating.
+            // For now, rely on frontend refresh. Consider transactions for robustness.
+            console.log(`Member updated: ${originalName} -> ${newName}`);
+            res.json({ success: true, name: newName, phone_number: cleanPhoneNumber });
+        } else {
+            // This case might occur if the name didn't actually change but the request was sent
+            // Or if the WHERE clause somehow failed despite the initial check.
+             res.status(304).json({ message: `Member '${originalName}' not modified (or not found during update).` }); // 304 Not Modified might be appropriate
+        }
+
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY' && error.message.includes("'name'")) {
+             return res.status(409).json({ message: `Another member with the name '${newName}' already exists.` });
+        }
+        console.error(`Error updating member ${originalName}:`, error);
+        res.status(500).json({ message: 'Server error updating member.' });
+    }
+});
+
+app.delete('/api/team-members/:name', requireLogin('admin'), async (req, res) => {
+    const name = decodeURIComponent(req.params.name);
+    if (!name) { return res.status(400).send('Member name is required in URL.'); }
     const connection = await pool.getConnection();
-    try { await connection.beginTransaction(); await connection.query('DELETE FROM unavailability WHERE member_name = ?', [name]); const [result] = await connection.query('DELETE FROM team_members WHERE name = ?', [name]); await connection.commit(); if (result.affectedRows > 0) { res.json({ success: true }); } else { res.status(404).send('Team member not found.'); } } catch (error) { await connection.rollback(); console.error('Error deleting team member:', error); res.status(500).send('Server error deleting team member.'); } finally { connection.release(); }
+    try {
+        await connection.beginTransaction();
+        // <<< MODIFIED: Explicitly delete related records before deleting the member >>>
+        console.log(`Attempting to delete records related to member: ${name}`);
+        await connection.query('DELETE FROM unavailability WHERE member_name = ?', [name]);
+        console.log(`Deleted unavailability for ${name}`);
+        await connection.query('DELETE FROM member_positions WHERE member_name = ?', [name]);
+        console.log(`Deleted member_positions for ${name}`);
+        await connection.query('DELETE FROM held_assignments WHERE member_name = ?', [name]);
+        console.log(`Deleted held_assignments for ${name}`);
+
+        // Then delete the member
+        const [result] = await connection.query('DELETE FROM team_members WHERE name = ?', [name]);
+        console.log(`Deleted team_member ${name}, affected rows: ${result.affectedRows}`);
+        await connection.commit();
+
+        if (result.affectedRows > 0) {
+            res.json({ success: true });
+        } else {
+            // This case means the member didn't exist, even though related records might have been deleted (if any existed)
+            res.status(404).send('Team member not found.');
+        }
+    } catch (error) {
+        await connection.rollback();
+        console.error(`Error deleting team member ${name}:`, error);
+        // Keep the foreign key check, as it might still occur if deletion order is wrong or constraints exist elsewhere
+        if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+             res.status(409).send('Cannot delete member due to existing references (this should not happen if related records were deleted first).');
+        } else {
+            res.status(500).send('Server error deleting team member.');
+        }
+    } finally {
+        connection.release();
+    }
 });
 
 
@@ -356,9 +463,13 @@ app.get('/login.html', (req, res) => {
 app.use((err, req, res, next) => { console.error(err.stack); res.status(500).send('Something broke on the server!'); });
 
 // --- MEMBER POSITIONS API ---
-app.get('/api/member-positions/:memberName', async (req, res) => { /* ... logic unchanged ... */
+app.get('/api/member-positions/:memberName', async (req, res) => {
     const memberName = decodeURIComponent(req.params.memberName);
     try {
+        const [memberExists] = await pool.query('SELECT 1 FROM team_members WHERE name = ?', [memberName]);
+        if (memberExists.length === 0) {
+             return res.json([]); // Return empty array if member doesn't exist
+        }
         const [positions] = await pool.query(
             `SELECT p.id, p.name
              FROM positions p
@@ -369,15 +480,15 @@ app.get('/api/member-positions/:memberName', async (req, res) => { /* ... logic 
         );
         res.json(positions);
     } catch (error) {
-        console.error('Error fetching member positions:', error);
+        console.error(`Error fetching member positions for ${memberName}:`, error);
         res.status(500).send('Server error fetching member positions.');
     }
 });
 
-app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
+app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req, res) => {
     const memberName = decodeURIComponent(req.params.memberName);
-    const { positionIds } = req.body; // Array of position IDs
-    
+    const { positionIds } = req.body;
+
     if (!Array.isArray(positionIds)) {
         return res.status(400).send('Position IDs must be provided as an array.');
     }
@@ -385,10 +496,15 @@ app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req,
     const connection = await pool.getConnection();
     try {
         await connection.beginTransaction();
-        
+        // Check member existence
+        const [memberExists] = await connection.query('SELECT 1 FROM team_members WHERE name = ?', [memberName]);
+        if (memberExists.length === 0) {
+             await connection.rollback();
+             return res.status(404).send(`Team member '${memberName}' not found.`);
+        }
         // Delete existing positions for this member
         await connection.query('DELETE FROM member_positions WHERE member_name = ?', [memberName]);
-        
+
         // Insert new positions
         if (positionIds.length > 0) {
             const values = positionIds.map(id => [memberName, id]);
@@ -397,20 +513,26 @@ app.post('/api/member-positions/:memberName', requireLogin('admin'), async (req,
                 [values]
             );
         }
-        
+
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
         await connection.rollback();
-        console.error('Error updating member positions:', error);
+        console.error(`Error updating member positions for ${memberName}:`, error);
+         // <<< REVERTED: Simplified error handling, check for specific FK errors >>>
+        if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+             // This likely means a position ID doesn't exist, as member existence was checked
+             return res.status(404).send(`One or more position IDs provided do not exist.`);
+        }
         res.status(500).send('Server error updating member positions.');
     } finally {
         connection.release();
     }
 });
 
-// GET (all members) is now public (needed for qualification check in user view)
-app.get('/api/all-member-positions', async (req, res) => { /* ... logic unchanged ... */
+// GET (all members) - This endpoint might still be useful for the user view qualification check
+// Keep it, but ensure it works correctly.
+app.get('/api/all-member-positions', async (req, res) => {
     try {
         const [rows] = await pool.query(
             `SELECT mp.member_name, p.id as position_id, p.name as position_name
@@ -433,10 +555,10 @@ app.get('/api/all-member-positions', async (req, res) => { /* ... logic unchange
 });
 
 // --- HELD ASSIGNMENTS API ---
-app.get('/api/held-assignments', async (req, res) => { /* ... logic unchanged ... */
+app.get('/api/held-assignments', async (req, res) => {
     try {
         const [assignments] = await pool.query(
-            'SELECT * FROM held_assignments ORDER BY assignment_date'
+            'SELECT id, assignment_date, position_name, member_name FROM held_assignments ORDER BY assignment_date'
         );
         res.json(assignments);
     } catch (error) {
@@ -445,13 +567,18 @@ app.get('/api/held-assignments', async (req, res) => { /* ... logic unchanged ..
     }
 });
 
-app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
+app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => {
     const { assignments } = req.body; // Array of {date, position_name, member_name}
+
+    if (!Array.isArray(assignments)) {
+        return res.status(400).send('Assignments must be provided as an array.');
+    }
+
     const connection = await pool.getConnection();
-    
+
     try {
         await connection.beginTransaction();
-        
+
         // Clear existing held assignments for the dates we're updating
         const dates = [...new Set(assignments.map(a => a.date))];
         if (dates.length > 0) {
@@ -460,7 +587,7 @@ app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => { /
                 [dates]
             );
         }
-        
+
         // Insert new held assignments
         if (assignments.length > 0) {
             const values = assignments.map(a => [a.date, a.position_name, a.member_name]);
@@ -469,7 +596,7 @@ app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => { /
                 [values]
             );
         }
-        
+
         await connection.commit();
         res.json({ success: true });
     } catch (error) {
@@ -481,12 +608,14 @@ app.post('/api/held-assignments', requireLogin('admin'), async (req, res) => { /
     }
 });
 
-app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
+app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res) => {
     const { date } = req.params;
-    
+     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).send('Invalid date format. Use YYYY-MM-DD.');
+    }
     try {
-        await pool.query('DELETE FROM held_assignments WHERE assignment_date = ?', [date]);
-        res.json({ success: true });
+        const [result] = await pool.query('DELETE FROM held_assignments WHERE assignment_date = ?', [date]);
+        res.json({ success: true, deletedCount: result.affectedRows });
     } catch (error) {
         console.error('Error deleting held assignments:', error);
         res.status(500).send('Server error deleting held assignments.');

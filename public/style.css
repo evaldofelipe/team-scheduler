@@ -39,6 +39,11 @@
     --list-item-border: var(--border-color); /* Slightly lighter than main border */
     --list-bg: #fdfdfd; /* Keep list slightly off-white in light mode */
     --focus-ring-color: rgba(13, 110, 253, .25);
+    /* --- ADDED: Today/Past Variables --- */
+    --today-border: #ffc107; /* A gold/yellow border for today */
+    --today-bg: #fffbeb; /* A very light yellow background for today */
+    --past-day-opacity: 0.65; /* Opacity for past days */
+    --past-day-text: #6c757d; /* Greyed text for past days */
 }
 
 /* Dark theme variables */
@@ -72,13 +77,18 @@
     --delete-icon-color: #ff8a8a;
     --delete-icon-hover-color: #ff6b6b;
     --delete-icon-hover-bg: #553333;
-    --link-color: #20c997;
+    --link-color: #4fd1c5; /* Changed from #20c997 to match header */
     --other-month-text: #777;
     --other-month-bg: #252525;
     --skipped-text: var(--delete-icon-color);
     --list-item-border: #444;
     --list-bg: #333;
     --focus-ring-color: rgba(79, 209, 197, .25); /* Theme focus ring */
+    /* --- ADDED: Today/Past Variables (Dark) --- */
+    --today-border: #e0a800; /* A slightly darker gold border */
+    --today-bg: #4d442a; /* A subtle dark gold background */
+    --past-day-opacity: 0.5; /* Slightly more faded in dark mode */
+    --past-day-text: #888; /* Lighter grey text for past days */
 }
 
 /* --- Global & Base Styles --- */
@@ -134,16 +144,21 @@ body {
     font-size: 1.1em;
 }
 
-#team-input-area, #position-input-area, #override-day-input-area {
+#team-input-area {
     margin-bottom: 15px;
     display: flex;
+    flex-wrap: wrap; /* Allow wrapping */
+    gap: 8px; /* Add gap */
 }
 
 #team-input-area input[type="text"],
-#position-input-area input[type="text"],
-#override-day-input-area input[type="date"] {
-    flex-grow: 1;
-    margin-right: 8px;
+#team-input-area input[type="tel"] { /* Apply to both */
+    flex: 1 1 100px;
+    min-width: 100px;
+    /* margin-right removed, use gap */
+}
+#team-input-area button {
+    flex-shrink: 0;
 }
 
 #team-list, #unavailable-list, #position-list, #override-days-list {
@@ -161,22 +176,63 @@ body {
 #team-list { flex-grow: 1; min-height: 150px; }
 #unavailable-list, #position-list, #override-days-list { max-height: 150px; min-height: 50px; margin-top: 10px; font-size: 0.9em; }
 
-#team-list li, #unavailable-list li, #position-list li, #override-days-list li {
-    padding: 8px 12px;
-    border-bottom: 1px solid var(--list-item-border); /* Use list item border variable */
+#team-list li.team-member-item { /* Target specific class */
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--list-item-border);
     font-size: 0.95em;
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    align-items: center;
-    color: var(--text-primary); /* Ensure text color follows theme */
+    align-items: flex-start; /* Align top */
+    gap: 10px;
+    color: var(--text-primary);
     transition: border-color 0.3s ease, color 0.3s ease;
 }
 
-#unavailable-list li { border-bottom-style: dashed; font-size: 0.9em; padding: 5px 8px; }
-#override-days-list li { font-size: 0.9em; padding: 5px 8px;}
+/* <<< ADDED: Styles for member info/actions/edit sections >>> */
+.member-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex-grow: 1;
+    min-width: 120px;
+}
+.member-name { font-weight: bold; }
+.member-phone { font-size: 0.9em; color: var(--text-secondary); transition: color 0.3s ease; }
+.member-actions { display: flex; gap: 5px; align-items: center; flex-shrink: 0; }
+.member-actions button { padding: 3px 8px; font-size: 0.85em; }
+.member-actions .delete-member-btn { background: none; border: none; color: var(--delete-icon-color); font-size: 1.1em; padding: 0 5px; line-height: 1; }
+.member-actions .delete-member-btn:hover { color: var(--delete-icon-hover-color); background-color: var(--delete-icon-hover-bg); }
 
-#team-list li:last-child, #unavailable-list li:last-child, #position-list li:last-child, #override-days-list li:last-child {
-    border-bottom: none;
+.member-positions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px 8px;
+    padding-left: 0; /* Adjust as needed */
+    font-size: 0.9em;
+    width: 100%;
+    margin-top: 5px;
+    border-top: 1px dashed var(--list-item-border);
+    padding-top: 8px;
+}
+
+.position-checkbox {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 6px;
+    background-color: var(--calendar-assignment-bg);
+    border-radius: 4px;
+    cursor: pointer;
+    border: 1px solid var(--border-color); /* Add border */
+}
+[data-theme="dark"] .position-checkbox {
+     background-color: var(--input-bg-color); /* Darker background */
+}
+.position-checkbox input[type="checkbox"] {
+    margin: 0;
+    width: 14px; /* Adjust size */
+    height: 14px;
 }
 
 /* Delete buttons in lists */
@@ -349,7 +405,7 @@ body {
     position: relative;
     font-size: 0.9em;
     overflow: hidden;
-    transition: background-color 0.3s ease, border-color 0.3s ease;
+    transition: background-color 0.3s ease, border-color 0.3s ease, opacity 0.3s ease; /* Added opacity transition */
     padding-bottom: 25px; /* Add padding at bottom for hold checkbox */
     min-height: 120px; /* Ensure minimum height for content */
 }
@@ -357,12 +413,53 @@ body {
 #calendar td.other-month {
     color: var(--other-month-text);
     background-color: var(--other-month-bg);
+    opacity: 1 !important; /* Ensure past/today styles don't apply to other-month cells */
 }
 
 #calendar td.weekend { /* Optional styling if needed */ }
 
 #calendar td.assignment-day {
     background-color: var(--calendar-assignment-bg);
+}
+
+/* --- ADDED: Today Styling --- */
+#calendar td.today {
+    background-color: var(--today-bg);
+    border: 1px solid var(--today-border); /* Add border for emphasis */
+    /* Make content slightly more prominent */
+    /* opacity: 1 !important; */ /* Usually not needed unless overridden */
+}
+/* Ensure date number is visible */
+#calendar td.today .date-number {
+    font-weight: bold;
+    color: var(--text-primary); /* Use primary text color for today's date */
+}
+
+/* --- ADDED: Past Day Styling --- */
+#calendar td.past-day {
+    opacity: var(--past-day-opacity);
+    /* Optional: Slightly different background if needed, but opacity often suffices */
+    /* background-color: var(--bg-secondary); */
+}
+/* Grey out text content within past days */
+#calendar td.past-day .date-number,
+#calendar td.past-day .assigned-position,
+#calendar td.past-day .assignment-skipped,
+#calendar td.past-day .hold-label {
+    color: var(--past-day-text) !important; /* Override default colors */
+}
+/* Make links less prominent */
+#calendar td.past-day .assigned-position strong {
+    color: var(--past-day-text) !important;
+    font-weight: normal; /* Optional: reduce emphasis */
+}
+/* Hide interactive elements on past days */
+#calendar td.past-day .hold-container .hold-checkbox,
+#calendar td.past-day .hold-container .small-randomize-btn {
+    display: none; /* Hide hold checkbox and randomize button */
+}
+#calendar td.past-day .hold-container .hold-label {
+    cursor: default; /* Remove pointer cursor */
 }
 
 .date-number {
@@ -681,7 +778,7 @@ input:focus, select:focus {
         display: none;
     }
 
-    /* Create a new mobile calendar list view */
+    /* Show the mobile calendar list view */
     #calendar-body-mobile {
         display: block !important; /* Show on mobile */
         list-style: none;
@@ -689,12 +786,14 @@ input:focus, select:focus {
         margin: 0;
     }
 
-    .mobile-day {
+    /* --- RENAMED and STYLED mobile list item --- */
+    .mobile-day-item { /* Renamed from .mobile-day */
         background: var(--calendar-cell-bg);
         border: 1px solid var(--border-color);
         margin-bottom: 8px;
         border-radius: 4px;
         overflow: hidden;
+        transition: background-color 0.3s ease, border-color 0.3s ease, opacity 0.3s ease; /* Added opacity */
     }
 
     .mobile-day-header {
@@ -706,7 +805,7 @@ input:focus, select:focus {
         border-bottom: 1px solid var(--border-color);
     }
 
-    .mobile-date {
+    .mobile-date { /* Renamed from .mobile-day-header span */
         font-weight: bold;
         color: var(--text-primary);
     }
@@ -715,23 +814,51 @@ input:focus, select:focus {
         padding: 8px;
     }
 
-    .mobile-day.weekend {
-        background: var(--calendar-assignment-bg);
+    /* --- ADDED: Today Styling (Mobile) --- */
+    .mobile-day-item.today {
+        background-color: var(--today-bg);
+        border: 1px solid var(--today-border);
+    }
+    .mobile-day-item.today .mobile-date {
+        color: var(--text-primary); /* Ensure date is prominent */
     }
 
-    .mobile-day.other-month {
-        opacity: 0.7;
+    /* --- ADDED: Past Day Styling (Mobile) --- */
+    .mobile-day-item.past-day {
+        opacity: var(--past-day-opacity);
+    }
+    .mobile-day-item.past-day .mobile-date,
+    .mobile-day-item.past-day .assigned-position,
+    .mobile-day-item.past-day .assignment-skipped {
+         color: var(--past-day-text) !important;
+    }
+    .mobile-day-item.past-day .assigned-position strong {
+        color: var(--past-day-text) !important;
+        font-weight: normal;
+    }
+    /* Hide hold elements on past mobile days */
+    .mobile-day-item.past-day .hold-container {
+        display: none;
+    }
+
+
+    .mobile-day-item.weekend { /* Renamed from .mobile-day.weekend */
+        /* Optional: Adjust weekend styling if needed */
+        /* background: var(--calendar-assignment-bg); */ /* Maybe remove this if today/past is enough */
+    }
+    .mobile-day-item.assignment-day { /* Added class for consistency */
+         /* Optional: Add specific background for assignment days if not weekend/today */
     }
 
     /* Adjust assignment display for mobile */
-    .mobile-day .assigned-position {
+    .mobile-day-item .assigned-position { /* Renamed from .mobile-day */
         font-size: 14px;
         margin: 4px 0;
         white-space: normal;
         line-height: 1.4;
     }
 
-    .mobile-day .hold-container {
+    .mobile-day-item .hold-container { /* Renamed from .mobile-day */
         position: static;
         margin-top: 8px;
         padding-top: 8px;
@@ -740,7 +867,7 @@ input:focus, select:focus {
     }
 
     /* Hide the small randomize button on mobile days */
-    .mobile-day .small-randomize-btn {
+    .mobile-day-item .small-randomize-btn { /* Renamed from .mobile-day */
         display: none;
     }
 }
@@ -854,7 +981,7 @@ body.login-page #theme-toggle {
     justify-content: space-between;
     align-items: center;
     margin-bottom: 8px;
-    font-weight: bold;
+    width: 100%;
 }
 
 .member-positions {
@@ -960,3 +1087,73 @@ body.login-page #theme-toggle {
     opacity: 1;
     background: none;
 }
+
+/* --- ADDED: Held Assignment Styling --- */
+#calendar td .assigned-position.held,
+#calendar-body-mobile .assigned-position.held {
+    font-style: italic;
+    opacity: 0.85; /* Slightly faded */
+    /* Optional: Add a subtle background or border */
+    /* background-color: rgba(255, 215, 0, 0.1); */ /* Light gold hint */
+}
+[data-theme="dark"] #calendar td .assigned-position.held,
+[data-theme="dark"] #calendar-body-mobile .assigned-position.held {
+     /* background-color: rgba(224, 168, 0, 0.15); */ /* Darker gold hint */
+}
+
+/* Ensure hold checkbox is visible */
+.hold-container {
+    /* Styles already exist, ensure z-index if needed */
+     z-index: 2;
+}
+
+/* Adjust assignment positioning if hold container overlaps */
+#calendar td {
+    /* padding-bottom: 25px; */ /* Ensure enough space at bottom */
+}
+.assigned-position:last-of-type,
+.assignment-skipped:last-of-type {
+    /* margin-bottom: 20px; */ /* Ensure space above hold container */
+}
+
+/* Style the small randomize button */
+.small-randomize-btn {
+    /* Styles already exist */
+    margin-left: 4px; /* Add some space from label */
+}
+
+/* Style skipped text */
+.skipped-text {
+    color: var(--skipped-text);
+    font-style: italic;
+    font-size: 0.9em;
+}
+
+/* Responsive adjustments for team list */
+@media (max-width: 800px) {
+    #team-list li.team-member-item {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 8px;
+    }
+    .member-info { flex-direction: row; justify-content: space-between; align-items: center; min-width: unset; }
+    .member-actions { justify-content: flex-end; }
+    .member-positions { padding-top: 5px; margin-top: 5px; }
+    .edit-member-form { flex-direction: column; }
+    .edit-member-form button { align-self: flex-end; }
+}
+
+/* <<< ADDED: Edit Form Styles >>> */
+.edit-member-form {
+    width: 100%; display: flex; flex-wrap: wrap; gap: 8px;
+    padding: 10px; margin-top: 8px; background-color: var(--calendar-header-bg);
+    border-radius: 4px; border: 1px solid var(--border-color);
+    transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+.edit-member-form input[type="text"],
+.edit-member-form input[type="tel"] { flex: 1 1 120px; padding: 5px 8px; font-size: 0.9em; }
+.edit-member-form button { padding: 4px 10px; font-size: 0.9em; flex-shrink: 0; }
+.edit-member-form .save-member-btn { background-color: var(--button-primary-bg); color: var(--button-primary-text); border: none; }
+.edit-member-form .save-member-btn:hover { background-color: var(--button-primary-hover-bg); }
+.edit-member-form .cancel-edit-member-btn { background-color: var(--button-default-bg); color: var(--button-default-text); border-color: var(--button-default-border); }
+.edit-member-form .cancel-edit-member-btn:hover { background-color: var(--button-hover-bg); }

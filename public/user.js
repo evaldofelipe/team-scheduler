@@ -132,7 +132,7 @@ function isMemberQualified(memberName, positionId) {
 // Removed shouldAssignOnDate - logic is now within renderCalendar
 
 // Modify the renderCalendar function in user.js
-function renderCalendar(year, month, membersToAssign = teamMembers) {
+function renderCalendar(year, month) {
     // Clear both regular and mobile views
     calendarBody.innerHTML = '';
     let mobileView = document.getElementById('calendar-body-mobile');
@@ -147,6 +147,12 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
         mobileView.innerHTML = '';
     }
 
+    // --- ADDED: Get today's date for comparison ---
+    const today = new Date();
+    today.setHours(0, 0, 0, 0); // Normalize to midnight for accurate date comparison
+    const todayStr = formatDateYYYYMMDD(today);
+    // --- END ADDED ---
+
     // Use Portuguese month names
     monthYearHeader.textContent = `${MONTH_NAMES_PT[month]} ${year}`;
     const firstDayOfMonth = new Date(year, month, 1);
@@ -155,7 +161,11 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
     const startDayOfWeek = firstDayOfMonth.getDay();
     assignmentCounter = 0;
     let date = 1;
-    const canAssign = membersToAssign && membersToAssign.length > 0;
+
+    // <<< Use the global teamMembers state which is now array of objects >>>
+    const membersForAssignment = teamMembers; // Array of {name, phone_number}
+    const canAssign = membersForAssignment && membersForAssignment.length > 0;
+    const memberCount = membersForAssignment.length;
 
     // Regular calendar rendering
     for (let week = 0; week < 6; week++) {
@@ -179,12 +189,24 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                 date++;
             } else {
                 // Current month's day
-                cell.dataset.date = `${year}-${String(month + 1).padStart(2, '0')}-${String(date).padStart(2, '0')}`;
+                const currentCellDate = new Date(Date.UTC(year, month, date));
+                const currentCellDateStr = formatDateYYYYMMDD(currentCellDate);
+                cell.dataset.date = currentCellDateStr;
+
+                // --- ADDED: Apply 'today' and 'past-day' classes ---
+                const cellDateOnly = new Date(currentCellDate.getUTCFullYear(), currentCellDate.getUTCMonth(), currentCellDate.getUTCDate());
+                cellDateOnly.setHours(0,0,0,0); // Normalize cell date
+
+                if (currentCellDateStr === todayStr) {
+                    cell.classList.add('today');
+                } else if (cellDateOnly < today) {
+                    cell.classList.add('past-day');
+                }
+                // --- END ADDED ---
+
                 dateNumberDiv.textContent = date;
                 cell.appendChild(dateNumberDiv);
 
-                const currentCellDate = new Date(Date.UTC(year, month, date));
-                const currentCellDateStr = formatDateYYYYMMDD(currentCellDate);
                 const currentDayOfWeek = currentCellDate.getUTCDay();
 
                 // Determine if assignments should happen today
@@ -235,46 +257,44 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
                 // Create assignments
                 if (canAssign && positionsForThisDay.length > 0) {
                     cell.classList.add('assignment-day');
-                    const memberCount = membersToAssign.length;
                     const todaysHeldAssignments = heldDays.get(currentCellDateStr) || [];
 
                     positionsForThisDay.forEach(position => {
                         const assignmentDiv = document.createElement('div');
-                        assignmentDiv.className = 'assigned-position';
                         let assignedMemberName = null;
 
                         const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
 
                         if (heldAssignment) {
                             assignedMemberName = heldAssignment.member_name;
-                            assignmentDiv.classList.add('held');
-                            assignmentDiv.innerHTML = `<a href="#" class="position-link" title="Posição: ${position.name}">${position.name}</a>: ${assignedMemberName}`;
+                            assignmentDiv.classList.add('assigned-position', 'held');
+                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                             // Don't advance counter for holds
                         } else {
                             let attempts = 0;
                             while (assignedMemberName === null && attempts < memberCount) {
                                 const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
-                                const potentialMemberName = membersToAssign[potentialMemberIndex];
+                                // <<< FIX: Get the member object, then extract the name >>>
+                                const potentialMemberObject = membersForAssignment[potentialMemberIndex];
+                                const potentialMemberName = potentialMemberObject.name; // Get name string
 
                                 if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
-                                    isMemberQualified(potentialMemberName, position.id))
+                                    isMemberQualified(potentialMemberName, position.id)) // Pass name string
                                 {
-                                    assignedMemberName = potentialMemberName;
-                                    assignmentCounter = (assignmentCounter + attempts + 1); // Advance counter only for non-held
+                                    assignedMemberName = potentialMemberName; // Assign name string
+                                    assignmentCounter = (assignmentCounter + attempts + 1);
                                 } else {
-                                    attempts++;
+                                    attempts++; // Increment attempts regardless
                                 }
                             }
 
                             if (assignedMemberName) {
-                                assignmentDiv.innerHTML = `<a href="#" class="position-link" title="Posição: ${position.name}">${position.name}</a>: ${assignedMemberName}`;
+                                assignmentDiv.classList.add('assigned-position');
+                                assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                             } else {
                                 assignmentDiv.classList.add('assignment-skipped');
-                                // Changed text for skipped assignment
-                                assignmentDiv.innerHTML = `<a href="#" class="position-link" title="Posição: ${position.name}">${position.name}</a>: <span class="skipped-text">(Indisponível/Não Qualificado)</span>`;
-                                if (attempts === memberCount) {
-                                    assignmentCounter++; // Advance counter if skipped for non-held
-                                }
+                                assignmentDiv.innerHTML = `<strong>${position.name}:</strong> <span class="skipped-text">(Indisponível/Não Qualificado)</span>`;
+                                if (attempts === memberCount) assignmentCounter++;
                             }
                         }
                         cell.appendChild(assignmentDiv);
@@ -311,7 +331,10 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
         const dayHeader = document.createElement('div');
         dayHeader.className = 'mobile-day-header';
         // Use Portuguese day names for mobile header
-        dayHeader.textContent = `${DAY_NAMES_PT[currentDayOfWeek]}, ${d + 1}`;
+        const dateDisplay = document.createElement('span');
+        dateDisplay.className = 'mobile-date';
+        dateDisplay.textContent = `${DAY_NAMES_PT[currentDayOfWeek]}, ${d + 1}`;
+        dayHeader.appendChild(dateDisplay);
         dayItem.appendChild(dayHeader);
 
         const dayContent = document.createElement('div');
@@ -360,56 +383,54 @@ function renderCalendar(year, month, membersToAssign = teamMembers) {
 
         // Create assignments for mobile
         if (canAssign && positionsForThisDay.length > 0) {
-            dayItem.classList.add('assignment-day'); // Add class to the list item
-            const memberCount = membersToAssign.length;
+            dayItem.classList.add('assignment-day');
             const todaysHeldAssignments = heldDays.get(currentCellDateStr) || [];
 
             positionsForThisDay.forEach(position => {
                 const assignmentDiv = document.createElement('div');
-                assignmentDiv.className = 'assigned-position'; // Base class
                 let assignedMemberName = null;
 
                 const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
 
                 if (heldAssignment) {
                     assignedMemberName = heldAssignment.member_name;
-                    assignmentDiv.classList.add('held');
+                    assignmentDiv.className = 'assigned-position held'; // Add base and held class
                     assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                     // Don't advance mobile counter for holds
                 } else {
                     let attempts = 0;
                     while (assignedMemberName === null && attempts < memberCount) {
                         const potentialMemberIndex = (mobileAssignmentCounter + attempts) % memberCount;
-                        const potentialMemberName = membersToAssign[potentialMemberIndex];
+                        // <<< FIX: Get the member object, then extract the name >>>
+                        const potentialMemberObject = membersForAssignment[potentialMemberIndex];
+                        const potentialMemberName = potentialMemberObject.name; // Get name string
 
                         if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
-                            isMemberQualified(potentialMemberName, position.id))
+                            isMemberQualified(potentialMemberName, position.id)) // Pass name string
                         {
-                            assignedMemberName = potentialMemberName;
-                            mobileAssignmentCounter = (mobileAssignmentCounter + attempts + 1); // Advance mobile counter ONLY for non-held
+                            assignedMemberName = potentialMemberName; // Assign name string
+                            mobileAssignmentCounter = (mobileAssignmentCounter + attempts + 1);
                         } else {
                             attempts++;
                         }
                     }
 
                     if (assignedMemberName) {
+                        assignmentDiv.className = 'assigned-position'; // Add base class
                         assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                     } else {
-                        assignmentDiv.classList.add('assignment-skipped');
-                        // Changed text for skipped assignment
+                        assignmentDiv.className = 'assignment-skipped'; // Add base and skipped class
                         assignmentDiv.innerHTML = `<strong>${position.name}:</strong> <span class="skipped-text">(Indisponível/Não Qualificado)</span>`;
-                        if (attempts === memberCount) {
-                            mobileAssignmentCounter++; // Advance mobile counter if skipped for non-held
-                        }
+                        if (attempts === memberCount) mobileAssignmentCounter++;
                     }
                 }
                 dayContent.appendChild(assignmentDiv);
-            }); // End forEach position
+            }); // End forEach position (Mobile)
 
             if (memberCount > 0) { mobileAssignmentCounter %= memberCount; }
              else { mobileAssignmentCounter = 0; }
 
-        } // End if assignments needed
+        } // End if assignments needed (Mobile)
 
         dayItem.appendChild(dayContent);
         mobileView.appendChild(dayItem);

@@ -8,6 +8,7 @@ USE team_scheduler_db;
 CREATE TABLE IF NOT EXISTS team_members (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100) NOT NULL UNIQUE,
+    phone_number VARCHAR(20) NULL DEFAULT NULL, -- <<< ADDED: Optional phone number
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -136,6 +137,21 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE() 
 AND TABLE_NAME = 'positions' 
 AND COLUMN_NAME = 'allowed_days';
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- <<< ADDED: Check and add phone_number column to team_members if it doesn't exist >>>
+SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE team_members ADD COLUMN phone_number VARCHAR(20) NULL DEFAULT NULL AFTER name',
+    'SELECT "Column phone_number already exists in team_members"'
+) INTO @sql
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'team_members'
+AND COLUMN_NAME = 'phone_number';
 
 PREPARE stmt FROM @sql;
 EXECUTE stmt;
