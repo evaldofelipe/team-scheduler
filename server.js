@@ -17,7 +17,7 @@ const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN;
 const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
 // <<< ADDED: New Env Variables >>>
 const APP_URL = process.env.APP_URL || 'http://localhost:' + PORT; // Default to localhost if not set
-const SMS_BODY_TEMPLATE = process.env.SMS_BODY_TEMPLATE || '[Schedule] You are scheduled on {DATE} at {TIME}! Check: {APP_URL}';
+const SMS_BODY_TEMPLATE = process.env.SMS_BODY_TEMPLATE || '[Schedule] You are scheduled on {DAY_OF_WEEK}, {DATE} at {TIME}! Check: {APP_URL}';
 const SMS_GENERIC_TEMPLATE = process.env.SMS_GENERIC_TEMPLATE || '[Schedule] Reminder: Please check your schedule at {APP_URL}'; // For individual button
 
 // <<< ADDED: Backend equivalent of default times and days >>>
@@ -27,6 +27,10 @@ const REGULAR_TIMES = { // Map for regular day times
     3: '19:30', // Wed
     6: '09:30'  // Sat
 };
+// <<< END ADDED >>>
+
+// <<< ADDED: Day names mapping (Portuguese) >>>
+const DAY_NAMES_PT = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
 // <<< END ADDED >>>
 
 const dbConfig = {
@@ -760,9 +764,9 @@ app.post('/api/notify-member/:name', requireLogin('admin'), async (req, res) => 
     }
 });
 
-// <<< MODIFIED: Bulk Notification Endpoint with Date and Time Context >>>
+// <<< MODIFIED: Bulk Notification Endpoint with Date, Time, and Day of Week Context >>>
 app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
-    const { notifications } = req.body; // Expecting array: [{ memberName, date }, ...]
+    const { notifications } = req.body;
 
     if (!twilioClient) {
         return res.status(503).json({ success: false, message: 'SMS service is not configured or available.' });
@@ -774,11 +778,11 @@ app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
     let successCount = 0;
     let failureCount = 0;
     const results = [];
-    const delayMs = 1100; // Delay between messages
+    const delayMs = 1100;
 
     console.log(`Starting bulk dynamic SMS for ${notifications.length} notifications.`);
 
-    // --- Pre-fetch all relevant override times for efficiency ---
+    // ... Pre-fetch override times unchanged ...
     const datesInRequest = [...new Set(notifications.map(n => n.date).filter(Boolean))];
     const overrideTimesMap = new Map();
     if (datesInRequest.length > 0) {
@@ -795,7 +799,7 @@ app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
             // Proceed without override times, but log the error
         }
     }
-    // --- End pre-fetch ---
+    // ... End pre-fetch ...
 
 
     for (let i = 0; i < notifications.length; i++) {
@@ -803,7 +807,9 @@ app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
         let status = 'failed';
         let detail = 'Unknown error';
         let phoneNumber = null;
-        let eventTime = null; // <<< Variable to hold the determined time
+        let eventTime = null;
+        let dayOfWeekName = null; // <<< Variable for day name
+        let formattedDate = date; // <<< Variable for formatted date
 
         if (!memberName || !date) {
             console.warn(`Skipping notification ${i + 1}: Missing memberName or date.`);
@@ -835,46 +841,45 @@ app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
                 }
             }
 
-            // 2. Determine Event Time
-            if (phoneNumber) { // Only determine time if we might send a message
+            // 2. Determine Event Time and Day of Week Name
+            if (phoneNumber) { // Only determine if we might send a message
                 const overrideTime = overrideTimesMap.get(date);
                 if (overrideTime) {
-                    // Format HH:MM:SS from DB to HH:MM
                     eventTime = overrideTime.substring(0, 5);
-                } else {
-                    // Check default times if not an override
-                    try {
-                        const dateObj = new Date(date + 'T00:00:00Z'); // Treat as UTC
+                }
+
+                try {
+                    const dateObj = new Date(date + 'T00:00:00Z'); // Treat as UTC
+                    if (!isNaN(dateObj)) {
                         const dayOfWeek = dateObj.getUTCDay(); // 0 = Sunday, 6 = Saturday
-                        if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) && REGULAR_TIMES[dayOfWeek]) {
+                        dayOfWeekName = DAY_NAMES_PT[dayOfWeek] || null; // Get name from array
+
+                        // Determine default time if no override
+                        if (!eventTime && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) && REGULAR_TIMES[dayOfWeek]) {
                             eventTime = REGULAR_TIMES[dayOfWeek];
                         }
-                    } catch (dateError) {
-                        console.warn(`Could not determine day of week for date ${date}:`, dateError);
+
+                        // Format date
+                        formattedDate = dateObj.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+
+                    } else {
+                         console.warn(`Could not parse date object for ${date}`);
                     }
+                } catch (dateError) {
+                    console.warn(`Could not determine date details for ${date}:`, dateError);
                 }
             }
 
             // 3. Send SMS if phone number is valid
             if (phoneNumber) {
-                // Format the date nicely (e.g., DD/MM/YYYY)
-                let formattedDate = date;
-                try {
-                    const dateObj = new Date(date + 'T00:00:00Z');
-                    if (!isNaN(dateObj)) {
-                        formattedDate = dateObj.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
-                    }
-                } catch (formatError) {
-                    console.warn(`Could not reformat date ${date}:`, formatError);
-                }
-
                 // Construct message body, replacing placeholders
                 const messageBody = SMS_BODY_TEMPLATE
+                    .replace('{DAY_OF_WEEK}', dayOfWeekName || 'o dia') // Use determined day name or fallback
                     .replace('{DATE}', formattedDate)
-                    .replace('{TIME}', eventTime || 'horário habitual') // Use determined time or a fallback
+                    .replace('{TIME}', eventTime || 'horário habitual')
                     .replace('{APP_URL}', APP_URL);
 
-                console.log(`  ${i + 1}/${notifications.length}: Sending to ${memberName} (${phoneNumber}) for date ${formattedDate} at ${eventTime || 'N/A'}`);
+                console.log(`  ${i + 1}/${notifications.length}: Sending to ${memberName} (${phoneNumber}) for ${dayOfWeekName || 'N/A'}, ${formattedDate} at ${eventTime || 'N/A'}`);
                 const message = await twilioClient.messages.create({
                     body: messageBody,
                     messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
@@ -896,7 +901,7 @@ app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
             status = 'failed';
         }
 
-        results.push({ memberName, date, status, detail, eventTime }); // Optionally include time in results
+        results.push({ memberName, date, status, detail, eventTime, dayOfWeekName }); // Optionally include day name in results
 
         // Delay before next iteration
         if (i < notifications.length - 1) {
