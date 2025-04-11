@@ -36,9 +36,10 @@ CREATE TABLE IF NOT EXISTS unavailability (
     -- FOREIGN KEY (member_id) REFERENCES team_members(id) ON DELETE CASCADE
 );
 
--- Create the override_assignment_days table  -- <<< ADDED THIS TABLE >>>
+-- Create the override_assignment_days table
 CREATE TABLE IF NOT EXISTS override_assignment_days (
     override_date DATE NOT NULL PRIMARY KEY, -- The specific date that acts as an override
+    override_time TIME NULL DEFAULT NULL, -- <<< ADDED: Time for the override event
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -152,6 +153,21 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = DATABASE()
 AND TABLE_NAME = 'team_members'
 AND COLUMN_NAME = 'phone_number';
+
+PREPARE stmt FROM @sql;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
+
+-- <<< ADDED: Check and add override_time column if it doesn't exist >>>
+SELECT IF(
+    COUNT(*) = 0,
+    'ALTER TABLE override_assignment_days ADD COLUMN override_time TIME NULL DEFAULT NULL AFTER override_date',
+    'SELECT "Column override_time already exists in override_assignment_days"'
+) INTO @sql
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE()
+AND TABLE_NAME = 'override_assignment_days'
+AND COLUMN_NAME = 'override_time';
 
 PREPARE stmt FROM @sql;
 EXECUTE stmt;

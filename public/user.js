@@ -29,6 +29,13 @@ const MONTH_NAMES_PT = [
 // Add Portuguese Day Names (for mobile view if needed, though HTML handles desktop)
 const DAY_NAMES_PT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
+// --- Configuration ---
+const REGULAR_TIMES = { // <<< ADDED: Map for regular day times
+    0: '19:30', // Sun
+    3: '19:30', // Wed
+    6: '09:30'  // Sat
+};
+
 // --- Helper Functions ---
 function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
     try { const date = new Date(dateInput); const year = date.getUTCFullYear(); const month = String(date.getUTCMonth() + 1).padStart(2, '0'); const day = String(date.getUTCDate()).padStart(2, '0'); return `${year}-${month}-${day}`; } catch (e) { return ""; }
@@ -102,6 +109,7 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
         console.log("Posições buscadas (com config):", positions);
         console.log("Qualificações de Membros buscadas:", memberPositions);
         console.log("Tarefas Salvas buscadas:", heldDays);
+        console.log("Override Days buscados:", overrideDays);
         return true; // Indicate success
 
     } catch (error) {
@@ -210,7 +218,7 @@ function renderCalendar(year, month) {
                 const currentDayOfWeek = currentCellDate.getUTCDay();
 
                 // Determine if assignments should happen today
-                const isOverrideDay = overrideDays.includes(currentCellDateStr);
+                const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
                 const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
 
                 let positionsForThisDay = [];
@@ -227,7 +235,7 @@ function renderCalendar(year, month) {
                         }
                     } else { // 'regular' type
                         // Regular: Assign if it's a default day OR if it's an override day.
-                        if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay) {
+                        if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride) {
                             shouldAdd = true;
                         }
                     }
@@ -303,6 +311,32 @@ function renderCalendar(year, month) {
                     if (memberCount > 0) { assignmentCounter %= memberCount; }
                     else { assignmentCounter = 0; }
                 }
+
+                // <<< ADDED: Determine and Display Event Time >>>
+                let eventTime = null;
+                if (positionsForThisDay.length > 0) {
+                    const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
+                    if (overrideInfo && overrideInfo.time) {
+                        eventTime = overrideInfo.time;
+                    } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
+                         const hasRegularAssignment = positionsForThisDay.some(p => {
+                            const positionDetails = positions.find(pos => pos.id === p.id);
+                            return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
+                        });
+                        if(hasRegularAssignment) {
+                             eventTime = REGULAR_TIMES[currentDayOfWeek];
+                        }
+                    }
+                    if (eventTime) {
+                        const timeDiv = document.createElement('div');
+                        timeDiv.className = 'event-time';
+                        timeDiv.textContent = eventTime;
+                        // Prepend timeDiv inside the cell
+                        cell.insertBefore(timeDiv, cell.querySelector('.assigned-position, .assignment-skipped'));
+                    }
+                }
+                // <<< END ADDED >>>
+
                 date++;
             } // End current month day logic
             row.appendChild(cell);
@@ -341,7 +375,7 @@ function renderCalendar(year, month) {
         dayContent.className = 'mobile-day-content';
 
         // Determine assignments for this day (same logic as desktop)
-        const isOverrideDay = overrideDays.includes(currentCellDateStr);
+        const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
         const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
         let positionsForThisDay = [];
 
@@ -357,7 +391,7 @@ function renderCalendar(year, month) {
                 }
             } else { // 'regular' type
                 // Regular: Assign if it's a default day OR if it's an override day.
-                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay) {
+                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride) {
                     shouldAdd = true;
                 }
             }
@@ -431,6 +465,31 @@ function renderCalendar(year, month) {
              else { mobileAssignmentCounter = 0; }
 
         } // End if assignments needed (Mobile)
+
+        // <<< ADDED: Determine and Display Event Time (Mobile) >>>
+        let eventTime = null;
+        if (positionsForThisDay.length > 0) {
+            const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
+            if (overrideInfo && overrideInfo.time) {
+                eventTime = overrideInfo.time;
+            } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
+                 const hasRegularAssignment = positionsForThisDay.some(p => {
+                    const positionDetails = positions.find(pos => pos.id === p.id);
+                    return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
+                });
+                if(hasRegularAssignment) {
+                     eventTime = REGULAR_TIMES[currentDayOfWeek];
+                }
+            }
+            if (eventTime) {
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'event-time';
+                timeDiv.textContent = eventTime;
+                // Add time to the mobile header
+                dayHeader.appendChild(timeDiv);
+            }
+        }
+        // <<< END ADDED >>>
 
         dayItem.appendChild(dayContent);
         mobileView.appendChild(dayItem);

@@ -409,16 +409,70 @@ app.delete('/api/unavailability/:id', requireLogin('admin'), async (req, res) =>
 
 
 // --- OVERRIDE ASSIGNMENT DAYS API ---
-app.get('/api/overrides', async (req, res) => { /* ... logic unchanged ... */
-    try { const [overrides] = await pool.query('SELECT override_date FROM override_assignment_days ORDER BY override_date'); res.json(overrides.map(o => o.override_date)); } catch (error) { console.error('Error fetching override days:', error); res.status(500).send('Error fetching override days'); }
+app.get('/api/overrides', async (req, res) => {
+    try {
+        // <<< MODIFIED: Select date and time >>>
+        const [overrides] = await pool.query(
+            'SELECT override_date, override_time FROM override_assignment_days ORDER BY override_date'
+        );
+        // <<< MODIFIED: Map to objects with date and formatted time >>>
+        res.json(overrides.map(o => ({
+            date: o.override_date,
+            // Format TIME 'HH:MM:SS' to 'HH:MM' for consistency, handle null
+            time: o.override_time ? o.override_time.substring(0, 5) : null
+        })));
+    } catch (error) {
+        console.error('Error fetching override days:', error);
+        res.status(500).send('Error fetching override days');
+    }
 });
-app.post('/api/overrides', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
-    const { date } = req.body; if (!date) { return res.status(400).send('Date is required for override.'); } if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { return res.status(400).send('Invalid date format. Use YYYY-MM-DD'); }
-    try { await pool.query('INSERT INTO override_assignment_days (override_date) VALUES (?)', [date]); res.status(201).json({ success: true, date: date }); } catch (error) { if (error.code === 'ER_DUP_ENTRY') { return res.status(409).send('This date is already set as an override day.'); } console.error('Error adding override day:', error); res.status(500).send('Server error adding override day.'); }
+
+app.post('/api/overrides', requireLogin('admin'), async (req, res) => {
+    // <<< MODIFIED: Get date and time >>>
+    const { date, time } = req.body;
+    if (!date || !time) { // Make time required
+        return res.status(400).send('Date and Time (HH:MM) are required for override.');
+    }
+    // Basic validation
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).send('Invalid date format. Use YYYY-MM-DD');
+    }
+    if (!/^\d{2}:\d{2}$/.test(time)) { // Validate HH:MM format
+        return res.status(400).send('Invalid time format. Use HH:MM');
+    }
+
+    try {
+        // <<< MODIFIED: Insert date and time >>>
+        await pool.query(
+            'INSERT INTO override_assignment_days (override_date, override_time) VALUES (?, ?)',
+            [date, time] // Store time directly (MySQL TIME type accepts HH:MM)
+        );
+        res.status(201).json({ success: true, date: date, time: time });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).send('This date is already set as an override day.');
+        }
+        console.error('Error adding override day:', error);
+        res.status(500).send('Server error adding override day.');
+    }
 });
-app.delete('/api/overrides/:date', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
-    const date = req.params.date; if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { return res.status(400).send('Invalid date format in URL. Use YYYY-MM-DD'); }
-    try { const [result] = await pool.query('DELETE FROM override_assignment_days WHERE override_date = ?', [date]); if (result.affectedRows > 0) { res.json({ success: true }); } else { res.status(404).send('Override day not found.'); } } catch (error) { console.error('Error deleting override day:', error); res.status(500).send('Error deleting override day.'); }
+
+app.delete('/api/overrides/:date', requireLogin('admin'), async (req, res) => {
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).send('Invalid date format in URL. Use YYYY-MM-DD');
+    }
+    try {
+        const [result] = await pool.query('DELETE FROM override_assignment_days WHERE override_date = ?', [date]);
+        if (result.affectedRows > 0) {
+            res.json({ success: true });
+        } else {
+            res.status(404).send('Override day not found.');
+        }
+    } catch (error) {
+        console.error('Error deleting override day:', error);
+        res.status(500).send('Error deleting override day.');
+    }
 });
 
 

@@ -73,10 +73,12 @@
 
         <!-- Override Assignment Days Section -->
         <div id="override-days-section">
-             <h4>Override Assignment Days (Current Month)</h4>
+             <h4>Override Assignment Days</h4>
               <div id="override-day-input-area">
                  <label for="overrideDateInput" class="visually-hidden">Override Date:</label>
                  <input type="date" id="overrideDateInput" title="Select date to force assignments">
+                 <label for="overrideTimeInput" class="visually-hidden">Override Time:</label>
+                 <input type="time" id="overrideTimeInput" title="Select time for override event (HH:MM)" required>
                  <button id="addOverrideDayBtn">Add Override Day</button>
              </div>
              <ul id="override-days-list">

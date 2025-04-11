@@ -22,6 +22,7 @@ const addUnavailabilityBtn = document.getElementById('addUnavailabilityBtn');
 const unavailableList = document.getElementById('unavailable-list');
 // Override Days
 const overrideDateInput = document.getElementById('overrideDateInput');
+const overrideTimeInput = document.getElementById('overrideTimeInput');
 const addOverrideDayBtn = document.getElementById('addOverrideDayBtn');
 const overrideDaysList = document.getElementById('override-days-list');
 // Special Assignments
@@ -51,6 +52,11 @@ let heldDays = new Map(); // Still use Map for temporary storage
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']; // For labels
+const REGULAR_TIMES = { // Map for regular day times
+    0: '19:30', // Sun
+    3: '19:30', // Wed
+    6: '09:30'  // Sat
+};
 
 // --- Helper Functions ---
 function shuffleArray(array) { /* ... unchanged ... */
@@ -120,6 +126,7 @@ async function fetchData() {
         console.log("Fetched Positions (with config):", positions);
         console.log("Fetched Member Positions:", memberPositions);
         console.log("Fetched Held Assignments:", heldDays);
+        console.log("Fetched Override Days:", overrideDays);
         return true;
 
     } catch (error) {
@@ -423,33 +430,31 @@ function renderUnavailableList() {
 
 function renderOverrideDaysList() {
     overrideDaysList.innerHTML = '';
-    const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth();
-    const filteredOverrideDays = overrideDays.filter(dateStr => {
-        const overrideDate = new Date(dateStr + 'T00:00:00Z');
-        return overrideDate.getUTCFullYear() === currentYear && overrideDate.getUTCMonth() === currentMonth;
+    const currentYear = currentDate.getFullYear();
+    const relevantOverrides = overrideDays
+        .filter(override => {
+            try {
+                const overrideDate = new Date(override.date + 'T00:00:00Z');
+                return overrideDate.getUTCFullYear() === currentYear && overrideDate.getUTCMonth() === currentMonth;
+            } catch (e) {
+                console.warn(`Invalid date found in overrideDays: ${override.date}`);
+                return false;
+            }
+        })
+        .sort((a, b) => a.date.localeCompare(b.date));
+
+    relevantOverrides.forEach(override => {
+        const li = document.createElement('li');
+        li.textContent = `${override.date} (${override.time || 'No Time Set'})`;
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = 'x';
+        deleteBtn.title = `Remove override for ${override.date}`;
+        deleteBtn.onclick = () => removeOverrideDay(override.date);
+        li.appendChild(deleteBtn);
+        overrideDaysList.appendChild(li);
     });
-    filteredOverrideDays.sort();
-    if (filteredOverrideDays.length === 0) {
-        overrideDaysList.innerHTML = '<li>No overrides this month.</li>';
-        const placeholderLi = overrideDaysList.querySelector('li');
-        if(placeholderLi){ placeholderLi.style.cssText = '...'; }
-    } else {
-        filteredOverrideDays.forEach((dateStr) => {
-            const li = document.createElement('li');
-            const displayDate = new Date(dateStr + 'T00:00:00Z').toLocaleDateString();
-            const dateSpan = document.createElement('span');
-            dateSpan.textContent = displayDate;
-            li.appendChild(dateSpan);
-            const removeBtn = document.createElement('button');
-            removeBtn.textContent = 'x';
-            removeBtn.title = `Remove Override ${displayDate}`;
-            removeBtn.onclick = () => removeOverrideDay(dateStr);
-            li.appendChild(removeBtn);
-            overrideDaysList.appendChild(li);
-        });
-    }
-    if(overrideDaysList.lastChild) overrideDaysList.lastChild.style.borderBottom = 'none';
+    if (overrideDaysList.lastChild) overrideDaysList.lastChild.style.borderBottom = 'none';
 }
 
 function renderSpecialAssignmentsList() {
@@ -676,12 +681,12 @@ function renderCalendar(year, month) {
                 if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
 
                 let positionsForThisDay = [];
-                const isOverrideDay = overrideDays.includes(currentCellDateStr);
+                const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
 
                 positions.forEach(position => {
                     let shouldAdd = false;
                     if (position.assignment_type === 'regular') {
-                        shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) || isOverrideDay;
+                        shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) || isOverride;
                     } else if (position.assignment_type === 'specific_days') {
                         const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
                         shouldAdd = allowed.includes(dayOfWeek.toString());
@@ -700,6 +705,29 @@ function renderCalendar(year, month) {
                 });
 
                 positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+                let eventTime = null;
+                if (positionsForThisDay.length > 0) {
+                    const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
+                    if (overrideInfo && overrideInfo.time) {
+                        eventTime = overrideInfo.time;
+                    } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(dayOfWeek)) {
+                        const hasRegularAssignment = positionsForThisDay.some(p => {
+                            const positionDetails = positions.find(pos => pos.id === p.id);
+                            return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek);
+                        });
+                        if(hasRegularAssignment) {
+                             eventTime = REGULAR_TIMES[dayOfWeek];
+                        }
+                    }
+
+                    if (eventTime) {
+                        const timeDiv = document.createElement('div');
+                        timeDiv.className = 'event-time';
+                        timeDiv.textContent = eventTime;
+                        cell.insertBefore(timeDiv, cell.querySelector('.assigned-position, .assignment-skipped'));
+                    }
+                }
 
                 if (canAssign && positionsForThisDay.length > 0) {
                     cell.classList.add('assignment-day');
@@ -796,12 +824,12 @@ function renderCalendar(year, month) {
         dayContent.className = 'mobile-day-content';
 
         let positionsForThisDay = [];
-        const isOverrideDay = overrideDays.includes(currentCellDateStr);
+        const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
 
         positions.forEach(position => {
             let shouldAdd = false;
             if (position.assignment_type === 'regular') {
-                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay;
+                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride;
             } else if (position.assignment_type === 'specific_days') {
                 const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
                 shouldAdd = allowed.includes(currentDayOfWeek.toString());
@@ -820,6 +848,28 @@ function renderCalendar(year, month) {
         });
 
         positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+        let eventTime = null;
+        if (positionsForThisDay.length > 0) {
+            const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
+            if (overrideInfo && overrideInfo.time) {
+                eventTime = overrideInfo.time;
+            } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
+                 const hasRegularAssignment = positionsForThisDay.some(p => {
+                    const positionDetails = positions.find(pos => pos.id === p.id);
+                    return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
+                });
+                if(hasRegularAssignment) {
+                     eventTime = REGULAR_TIMES[currentDayOfWeek];
+                }
+            }
+            if (eventTime) {
+                const timeDiv = document.createElement('div');
+                timeDiv.className = 'event-time';
+                timeDiv.textContent = eventTime;
+                dayHeader.appendChild(timeDiv);
+            }
+        }
 
         if (canAssign && positionsForThisDay.length > 0) {
              dayItem.classList.add('assignment-day');
@@ -1123,28 +1173,42 @@ async function removeUnavailability(idToRemove) {
 }
 
 async function addOverrideDay() {
-    console.log('Add override day button clicked');
     const date = overrideDateInput.value;
+    const time = overrideTimeInput.value;
+
     if (!date) {
-        alert('Please select a date.');
+        alert('Please select a date for the override.');
+        overrideDateInput.focus();
         return;
     }
-    
-    await apiCall('/api/overrides', {
+    if (!time) {
+        alert('Please select a time for the override.');
+        overrideTimeInput.focus();
+        return;
+    }
+    if (!/^\d{2}:\d{2}$/.test(time)) {
+        alert('Invalid time format. Please use HH:MM.');
+        overrideTimeInput.focus();
+        return;
+    }
+
+    console.log(`Adding override day: ${date} at ${time}`);
+
+    const success = await apiCall('/api/overrides', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date })
+        body: JSON.stringify({ date, time })
     });
-    
-    overrideDateInput.value = '';
+
+    if (success) {
+        overrideDateInput.value = '';
+        overrideTimeInput.value = '';
+    }
 }
 
-async function removeOverrideDay(dateStr) {
-    if (!confirm(`Remove override day: ${new Date(dateStr).toLocaleDateString()}?`)) return;
-    
-    await apiCall(`/api/overrides/${dateStr}`, {
-        method: 'DELETE'
-    });
+async function removeOverrideDay(dateToRemove) {
+    if (!confirm(`Remove override day for ${dateToRemove}?`)) return;
+    await apiCall(`/api/overrides/${dateToRemove}`, { method: 'DELETE' });
 }
 
 async function addSpecialAssignment() {
@@ -1334,7 +1398,8 @@ positionNameInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') {
 addUnavailabilityBtn.addEventListener('click', addUnavailability);
 
 addOverrideDayBtn.addEventListener('click', addOverrideDay);
-overrideDateInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { e.preventDefault(); addOverrideDay(); } });
+overrideDateInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { e.preventDefault(); overrideTimeInput.focus(); } });
+overrideTimeInput.addEventListener('keypress', (e => { if (e.key === 'Enter') { e.preventDefault(); addOverrideDay(); } }));
 
 addSpecialAssignmentBtn.addEventListener('click', addSpecialAssignment);
 
