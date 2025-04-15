@@ -13,6 +13,7 @@ let positions = []; // Now expects {id, name, display_order, assignment_type, al
 let unavailableEntries = [];
 let overrideDays = [];
 let specialAssignments = [];
+let removedAssignments = []; // <<< ADDED: State for removed slots (user view)
 let assignmentCounter = 0;
 let memberPositions = new Map(); // { memberName => [{id, name}, ...] }
 let heldDays = new Map(); // <<< ADDED: Store held assignments { dateStr => [{position_name, member_name}, ...] }
@@ -42,26 +43,27 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
 }
 
 // --- API Interaction ---
- async function fetchData() {
+async function fetchData() {
     console.log("Buscando dados para a visualização do usuário...");
     try {
         // Fetch all data needed
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
             fetch('/api/overrides'),
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
-            fetch('/api/held-assignments')
+            fetch('/api/held-assignments'),
+            fetch('/api/removed-assignments') // Fetch removed assignments
         ]);
 
         // Check for errors (excluding 401 redirect for public view)
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes];
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes];
         const errors = [];
         responses.forEach((res, index) => {
             if (!res.ok) {
-                const apiName = ['Membros', 'Indisponibilidade', 'Posições', 'Overrides', 'Tarefas Especiais', 'Qualificações', 'Tarefas Salvas'][index];
+                const apiName = ['Membros', 'Indisponibilidade', 'Posições', 'Overrides', 'Tarefas Especiais', 'Qualificações', 'Tarefas Salvas', 'Tarefas Removidas'][index];
                 // Don't redirect on 401/403 from public view, just log and report error
                 if (res.status === 401 || res.status === 403) {
                      console.warn(`Erro de autorização (${res.status}) buscando ${apiName}. Este endpoint pode precisar ser público.`);
@@ -85,6 +87,7 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
         specialAssignments = await specialAssignRes.json();
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
+        removedAssignments = await removedAssignRes.json(); // <<< ADDED: Store removed assignments
 
         // Convert member positions object into a Map
         memberPositions.clear();
@@ -110,6 +113,7 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
         console.log("Qualificações de Membros buscadas:", memberPositions);
         console.log("Tarefas Salvas buscadas:", heldDays);
         console.log("Override Days buscados:", overrideDays);
+        console.log("Tarefas Removidas buscadas:", removedAssignments); // <<< ADDED: Log removed
         return true; // Indicate success
 
     } catch (error) {
@@ -258,6 +262,13 @@ function renderCalendar(year, month) {
                         positionsForThisDay.push(positionInfo);
                     }
                 });
+
+                // <<< MODIFIED: Filter out REMOVED assignments (User View) >>>
+                const todaysRemovedAssignments = removedAssignments.filter(ra => ra.date === currentCellDateStr);
+                positionsForThisDay = positionsForThisDay.filter(p => {
+                    return !todaysRemovedAssignments.some(ra => ra.position_id === p.id);
+                });
+                // <<< END MODIFIED >>>
 
                 // Sort positions
                 positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
@@ -414,6 +425,13 @@ function renderCalendar(year, month) {
         });
         // Sort positions
         positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+        // <<< MODIFIED: Filter out REMOVED assignments (Mobile User View) >>>
+        const todaysRemovedMobile = removedAssignments.filter(ra => ra.date === currentCellDateStr);
+        positionsForThisDay = positionsForThisDay.filter(p => {
+            return !todaysRemovedMobile.some(ra => ra.position_id === p.id);
+        });
+        // <<< END MODIFIED >>>
 
         // Create assignments for mobile
         if (canAssign && positionsForThisDay.length > 0) {

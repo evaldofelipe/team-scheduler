@@ -40,6 +40,12 @@ const userFeedbackMessage = document.getElementById('user-feedback-message');
 // Theme Toggle (Button itself is selected below)
 const notifyDayDateInput = document.getElementById('notifyDayDateInput');
 const notifyDayBtn = document.getElementById('notifyDayBtn');
+// <<< ADDED: Removed Assignments Elements >>>
+const removedAssignmentDateInput = document.getElementById('removedAssignmentDate');
+const removedAssignmentPositionSelect = document.getElementById('removedAssignmentPosition');
+const addRemovedAssignmentBtn = document.getElementById('addRemovedAssignmentBtn');
+const removedAssignmentsList = document.getElementById('removed-assignments-list');
+// <<< END ADDED >>>
 
 // --- State Variables ---
 let currentDate = new Date();
@@ -48,6 +54,7 @@ let positions = []; // Now expects {id, name, assignment_type, allowed_days}
 let unavailableEntries = [];
 let overrideDays = [];
 let specialAssignments = [];
+let removedAssignments = []; // <<< ADDED: State for removed slots
 let assignmentCounter = 0;
 let memberPositions = new Map(); // Store member position assignments
 let heldDays = new Map(); // Still use Map for temporary storage
@@ -74,17 +81,20 @@ const delay = ms => new Promise(res => setTimeout(res, ms));
 async function fetchData() {
     console.log("Fetching data...");
     try {
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes] = await Promise.all([
+        // <<< MODIFIED: Add removed assignments fetch >>>
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
             fetch('/api/overrides'),
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
-            fetch('/api/held-assignments')
+            fetch('/api/held-assignments'),
+            fetch('/api/removed-assignments') // Fetch removed assignments
         ]);
 
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes];
+        // <<< MODIFIED: Include new response in checks >>>
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes];
         if (responses.some(res => res.status === 401)) {
             console.warn("Session expired or unauthorized. Redirecting to login.");
             window.location.href = '/login.html?message=Session expired. Please log in.';
@@ -99,6 +109,7 @@ async function fetchData() {
         if (!specialAssignRes.ok) errors.push(`Special Assignments: ${specialAssignRes.status} ${specialAssignRes.statusText}`);
         if (!allMemberPosRes.ok) errors.push(`All Member Positions: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
         if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`);
+        if (!removedAssignRes.ok) errors.push(`Removed Assignments: ${removedAssignRes.status} ${removedAssignRes.statusText}`); // Check removed assignments response
 
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
@@ -109,6 +120,7 @@ async function fetchData() {
         specialAssignments = await specialAssignRes.json();
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
+        removedAssignments = await removedAssignRes.json(); // Store removed assignments
 
         memberPositions.clear();
         for (const memberName in allMemberPositionsData) {
@@ -131,6 +143,7 @@ async function fetchData() {
         console.log("Fetched Member Positions:", memberPositions);
         console.log("Fetched Held Assignments:", heldDays);
         console.log("Fetched Override Days:", overrideDays);
+        console.log("Fetched Removed Assignments:", removedAssignments); // Log fetched data
         return true;
 
     } catch (error) {
@@ -410,7 +423,28 @@ function populateSpecialAssignmentPositionDropdown() {
         }
         specialAssignmentPositionSelect.appendChild(option);
     });
+
+    // <<< ADDED: Also populate the new dropdown for removed assignments >>>
+    populateRemovedAssignmentPositionDropdown();
 }
+
+// <<< ADDED: Function to populate the position dropdown for removed assignments >>>
+function populateRemovedAssignmentPositionDropdown() {
+    const currentSelection = removedAssignmentPositionSelect.value;
+    removedAssignmentPositionSelect.innerHTML = '<option value="">-- Select Position --</option>';
+    // Use the same sorted positions list
+    const sortedPositions = [...positions].sort((a, b) => a.name.localeCompare(b.name));
+    sortedPositions.forEach(position => {
+        const option = document.createElement('option');
+        option.value = position.id;
+        option.textContent = position.name;
+        if (position.id.toString() === currentSelection) {
+            option.selected = true;
+        }
+        removedAssignmentPositionSelect.appendChild(option);
+    });
+}
+// <<< END ADDED >>>
 
 function renderUnavailableList() {
     unavailableList.innerHTML = '';
@@ -497,6 +531,38 @@ function renderSpecialAssignmentsList() {
         });
     }
     if(specialAssignmentsList.lastChild) specialAssignmentsList.lastChild.style.borderBottom = 'none';
+}
+
+function renderRemovedAssignmentsList() {
+    removedAssignmentsList.innerHTML = '';
+    const currentYear = currentDate.getFullYear();
+    const currentMonth = currentDate.getMonth();
+
+    const filteredRemoved = removedAssignments.filter(ra => {
+        const assignmentDate = new Date(ra.date + 'T00:00:00Z');
+        return assignmentDate.getUTCFullYear() === currentYear && assignmentDate.getUTCMonth() === currentMonth;
+    });
+
+    filteredRemoved.sort((a, b) => a.date.localeCompare(b.date) || a.position_name.localeCompare(b.position_name));
+
+    if (filteredRemoved.length === 0) {
+        removedAssignmentsList.innerHTML = '<li>No slots removed this month.</li>';
+        const placeholderLi = removedAssignmentsList.querySelector('li');
+        if (placeholderLi) { placeholderLi.style.cssText = 'color: var(--text-secondary); font-style: italic;'; }
+    } else {
+        filteredRemoved.forEach((ra) => {
+            const li = document.createElement('li');
+            const displayDate = new Date(ra.date + 'T00:00:00Z').toLocaleDateString();
+            li.textContent = `${displayDate} - ${ra.position_name}`;
+            const removeBtn = document.createElement('button');
+            removeBtn.textContent = 'x';
+            removeBtn.title = `Restore slot ${ra.position_name} on ${displayDate}`;
+            removeBtn.onclick = () => removeRemovedAssignment(ra.id);
+            li.appendChild(removeBtn);
+            removedAssignmentsList.appendChild(li);
+        });
+    }
+    if (removedAssignmentsList.lastChild) removedAssignmentsList.lastChild.style.borderBottom = 'none';
 }
 
 function isMemberUnavailable(memberName, dateYYYYMMDD) {
@@ -859,6 +925,17 @@ function renderCalendar(year, month) {
                     }
                 });
 
+                // <<< MODIFIED: Filter out REMOVED assignments for this date >>>
+                const todaysRemovedAssignments = removedAssignments.filter(ra => ra.date === currentCellDateStr);
+                positionsForThisDay = positionsForThisDay.filter(p => {
+                    const isRemoved = todaysRemovedAssignments.some(ra => ra.position_id === p.id);
+                    if (isRemoved) {
+                        console.log(`Slot removed for ${currentCellDateStr}: ${p.name}`);
+                    }
+                    return !isRemoved;
+                });
+                // <<< END MODIFIED >>>
+
                 positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
 
                 let eventTime = null;
@@ -948,12 +1025,12 @@ function renderCalendar(year, month) {
         if (date > daysInMonth && week > 0) break;
     }
 
+    // --- Mobile View Rendering ---
     let mobileAssignmentCounter = 0;
     for (let d = 0; d < daysInMonth; d++) {
         const currentMobileDate = new Date(Date.UTC(year, month, d + 1));
         const currentCellDateStr = formatDateYYYYMMDD(currentMobileDate);
         const currentDayOfWeek = currentMobileDate.getUTCDay();
-
         const dayItem = document.createElement('li');
         dayItem.className = 'mobile-day-item';
         dayItem.dataset.date = currentCellDateStr;
@@ -986,9 +1063,9 @@ function renderCalendar(year, month) {
         const dayContent = document.createElement('div');
         dayContent.className = 'mobile-day-content';
 
+        // --- Determine positions for this mobile day --- START ---
         let positionsForThisMobileDay = [];
         const isOverrideMobile = overrideDays.some(o => o.date === currentCellDateStr);
-
         positions.forEach(position => {
             let shouldAdd = false;
             if (position.assignment_type === 'regular') {
@@ -1001,16 +1078,23 @@ function renderCalendar(year, month) {
                 positionsForThisMobileDay.push(position);
             }
         });
-
         const todaysSpecialMobile = specialAssignments.filter(sa => sa.date === currentCellDateStr);
         todaysSpecialMobile.forEach(sa => {
             const positionInfo = positions.find(p => p.id === sa.position_id);
-            if (positionInfo) {
+            if (positionInfo && !positionsForThisMobileDay.some(p => p.id === positionInfo.id)) {
                 positionsForThisMobileDay.push(positionInfo);
             }
         });
 
+        // <<< MODIFIED: Filter out REMOVED assignments for this date (Mobile) >>>
+        const todaysRemovedMobile = removedAssignments.filter(ra => ra.date === currentCellDateStr);
+        positionsForThisMobileDay = positionsForThisMobileDay.filter(p => {
+            return !todaysRemovedMobile.some(ra => ra.position_id === p.id);
+        });
+        // <<< END MODIFIED >>>
+
         positionsForThisMobileDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+        // --- Determine positions for this mobile day --- END ---
 
         let eventTime = null;
         if (positionsForThisMobileDay.length > 0) {
@@ -1152,6 +1236,7 @@ async function apiCall(url, options, successCallback, errorCallback) {
                 renderUnavailableList();
                 renderOverrideDaysList();
                 renderSpecialAssignmentsList();
+                renderRemovedAssignmentsList(); // <<< ADDED: Render the new list
                 renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
                 
                 if (successCallback) successCallback();
@@ -1455,8 +1540,8 @@ async function logout() {
     // ...
 }
 
-prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); });
-nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); });
+prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); renderRemovedAssignmentsList(); });
+nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); renderRemovedAssignmentsList(); });
 
 randomizeBtn.addEventListener('click', () => {
     if (teamMembers.length > 0) {
@@ -1489,7 +1574,7 @@ randomizeBtn.addEventListener('click', () => {
                             const maxAttempts = shuffledMembers.length;
 
                             while (!assigned && attempts < maxAttempts) {
-                                const memberIndex = (assignmentCounter + attempts) % shuffledMembers.length;
+                                const memberIndex = (assignmentCounter + attempts) % maxAttempts;
                                 const memberName = shuffledMembers[memberIndex];
                                 
                                 if (!isMemberUnavailable(memberName, currentDate) && 
@@ -1576,6 +1661,9 @@ addSpecialAssignmentBtn.addEventListener('click', addSpecialAssignment);
 
 addUserBtn.addEventListener('click', addUser);
 newPasswordInput.addEventListener('keypress', (e) => { if (e.key === 'Enter') { e.preventDefault(); addUser(); } });
+// <<< ADDED: Event listener for the new button >>>
+addRemovedAssignmentBtn.addEventListener('click', addRemovedAssignment);
+// <<< END ADDED >>>
 
 function initializeTheme() {
     const theme = localStorage.getItem('theme') || 'light';
@@ -1617,6 +1705,7 @@ async function initializeAdminView() {
         renderUnavailableList();
         renderOverrideDaysList();
         renderSpecialAssignmentsList();
+        renderRemovedAssignmentsList(); // <<< ADDED: Render the new list
         renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
         applyHeldVisuals();
     } else {
@@ -1992,3 +2081,39 @@ if (notifyDayBtn) {
 } else {
     console.warn("Notify Day button not found.");
 }
+
+// <<< ADDED: Functions to handle adding/removing removed assignments >>>
+async function addRemovedAssignment() {
+    const date = removedAssignmentDateInput.value;
+    const position_id = removedAssignmentPositionSelect.value;
+
+    if (!date || !position_id) {
+        alert('Please select both a date and a position to remove.');
+        return;
+    }
+
+    const success = await apiCall('/api/removed-assignments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, position_id })
+    }, null, (errorText) => {
+        alert(`Error removing slot: ${errorText}`); // Show specific error
+    });
+
+    if (success) {
+        // Clear inputs only on success
+        removedAssignmentDateInput.value = '';
+        removedAssignmentPositionSelect.value = '';
+        // No need to call renderRemovedAssignmentsList here, apiCall handles refresh
+    }
+}
+
+async function removeRemovedAssignment(idToRemove) {
+    if (!confirm('Restore this assignment slot for the selected date?')) return;
+
+    await apiCall(`/api/removed-assignments/${idToRemove}`, {
+        method: 'DELETE'
+    });
+    // No need to call renderRemovedAssignmentsList here, apiCall handles refresh
+}
+// <<< END ADDED >>>

@@ -83,6 +83,17 @@ CREATE TABLE IF NOT EXISTS held_assignments (
     UNIQUE KEY unique_held_assignment (assignment_date, position_name)
 );
 
+-- <<< ADDED: Table to mark specific position slots as removed for a given date >>>
+CREATE TABLE IF NOT EXISTS removed_assignments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    assignment_date DATE NOT NULL,
+    position_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_removed_assignment (assignment_date, position_id)
+);
+-- <<< END ADDED >>>
+
 -- --- Sample Data (IMPORTANT: Use secure passwords and hashing in real apps!) ---
 
 -- Delete existing sample users first to avoid errors on re-run

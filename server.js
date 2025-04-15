@@ -979,6 +979,89 @@ app.post('/api/notify-bulk', requireLogin('admin'), async (req, res) => {
 });
 // <<< END MODIFIED Endpoint >>>
 
+// --- REMOVED ASSIGNMENTS API (New) ---
+// GET: Fetch all removed assignments (could filter by month later if needed)
+app.get('/api/removed-assignments', async (req, res) => {
+    try {
+        const [removed] = await pool.query(
+            `SELECT ra.id, ra.assignment_date, ra.position_id, p.name as position_name
+             FROM removed_assignments ra
+             JOIN positions p ON ra.position_id = p.id
+             ORDER BY ra.assignment_date, p.name`
+        );
+        // Map date for consistency with other endpoints
+        res.json(removed.map(r => ({ ...r, date: r.assignment_date })));
+    } catch (error) {
+        console.error('Error fetching removed assignments:', error);
+        res.status(500).send('Server error fetching removed assignments.');
+    }
+});
+
+// POST: Add a removed assignment slot
+app.post('/api/removed-assignments', requireLogin('admin'), async (req, res) => {
+    const { date, position_id } = req.body;
+
+    // Validation
+    if (!date || !position_id) {
+        return res.status(400).json({ success: false, message: 'Date and Position ID are required.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+    if (isNaN(parseInt(position_id))) {
+        return res.status(400).json({ success: false, message: 'Invalid Position ID. Must be a number.' });
+    }
+    const numericPositionId = parseInt(position_id);
+
+    try {
+        // Check if position exists
+        const [positionExists] = await pool.query('SELECT name FROM positions WHERE id = ?', [numericPositionId]);
+        if (positionExists.length === 0) {
+            return res.status(404).json({ success: false, message: `Position with ID ${numericPositionId} not found.` });
+        }
+        const positionName = positionExists[0].name;
+
+        // Insert the removal record
+        const [result] = await pool.query(
+            'INSERT INTO removed_assignments (assignment_date, position_id) VALUES (?, ?)',
+            [date, numericPositionId]
+        );
+        res.status(201).json({ success: true, id: result.insertId, date, position_id: numericPositionId, position_name: positionName });
+    } catch (error) {
+        if (error.code === 'ER_DUP_ENTRY') {
+            return res.status(409).json({ success: false, message: 'This position is already marked as removed for this date.' });
+        }
+        // Foreign key error might happen if position deleted concurrently, though unlikely
+        if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+            return res.status(404).json({ success: false, message: `Position with ID ${numericPositionId} not found.` });
+        }
+        console.error('Error adding removed assignment:', error);
+        res.status(500).json({ success: false, message: 'Server error adding removed assignment.' });
+    }
+});
+
+// DELETE: Remove a removed assignment entry
+app.delete('/api/removed-assignments/:id', requireLogin('admin'), async (req, res) => {
+    const { id } = req.params;
+    if (!id || isNaN(parseInt(id))) {
+        return res.status(400).json({ success: false, message: 'Valid numeric ID is required.' });
+    }
+    const numericId = parseInt(id);
+
+    try {
+        const [result] = await pool.query('DELETE FROM removed_assignments WHERE id = ?', [numericId]);
+        if (result.affectedRows > 0) {
+            res.json({ success: true });
+        } else {
+            res.status(404).json({ success: false, message: 'Removed assignment entry not found.' });
+        }
+    } catch (error) {
+        console.error('Error deleting removed assignment:', error);
+        res.status(500).json({ success: false, message: 'Error deleting removed assignment.' });
+    }
+});
+// --- END REMOVED ASSIGNMENTS API ---
+
 // --- Start Server ---
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
