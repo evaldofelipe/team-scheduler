@@ -721,6 +721,66 @@ app.delete('/api/held-assignments/:date', requireLogin('admin'), async (req, res
     }
 });
 
+// <<< NEW ENDPOINT: Set/Clear a specific manual assignment (effectively a single hold) >>>
+app.post('/api/assignment/set', requireLogin('admin'), async (req, res) => {
+    const { date, position_name, member_name } = req.body; // member_name can be null/empty to clear
+
+    // --- Validation ---
+    if (!date || !position_name) {
+        return res.status(400).json({ success: false, message: 'Date and position name are required.' });
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+    }
+    const targetMember = member_name ? member_name.trim() : null;
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+
+        // First, delete any existing entry for this date/position to handle updates/clears cleanly
+        await connection.query(
+            'DELETE FROM held_assignments WHERE assignment_date = ? AND position_name = ?',
+            [date, position_name]
+        );
+
+        // If a member name was provided, insert the new assignment/hold
+        if (targetMember) {
+            // Optional: Add validation to ensure member exists and is qualified?
+            // For simplicity, we might rely on the frontend providing valid members.
+            // If adding validation:
+            // const [memberExists] = await connection.query('SELECT 1 FROM team_members WHERE name = ?', [targetMember]);
+            // if (memberExists.length === 0) throw new Error(`Member '${targetMember}' not found.`);
+            // const [posExists] = await connection.query('SELECT id FROM positions WHERE name = ?', [position_name]);
+            // if (posExists.length === 0) throw new Error(`Position '${position_name}' not found.`);
+            // const positionId = posExists[0].id;
+            // const [isQual] = await connection.query('SELECT 1 FROM member_positions WHERE member_name = ? AND position_id = ?', [targetMember, positionId]);
+            // if (isQual.length === 0) throw new Error(`Member '${targetMember}' is not qualified for '${position_name}'.`);
+            // const [isUnavail] = await connection.query('SELECT 1 FROM unavailability WHERE member_name = ? AND unavailable_date = ?', [targetMember, date]);
+            // if (isUnavail.length > 0) throw new Error(`Member '${targetMember}' is unavailable on ${date}.`);
+
+            await connection.query(
+                'INSERT INTO held_assignments (assignment_date, position_name, member_name) VALUES (?, ?, ?)',
+                [date, position_name, targetMember]
+            );
+            console.log(`Manual assignment set: ${date} - ${position_name} -> ${targetMember}`);
+        } else {
+            console.log(`Manual assignment cleared: ${date} - ${position_name}`);
+        }
+
+        await connection.commit();
+        res.json({ success: true });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error(`Error setting manual assignment for ${date} - ${position_name}:`, error);
+        res.status(500).json({ success: false, message: `Server error setting assignment: ${error.message}` });
+    } finally {
+        connection.release();
+    }
+});
+// <<< END NEW ENDPOINT >>>
+
 // <<< MODIFIED: Individual Notification Endpoint (Sends Generic Message) >>>
 app.post('/api/notify-member/:name', requireLogin('admin'), async (req, res) => {
     const memberName = decodeURIComponent(req.params.name);

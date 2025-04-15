@@ -503,6 +503,153 @@ function isMemberUnavailable(memberName, dateYYYYMMDD) {
     return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
 }
 
+function removeAssignmentSelect() {
+    const existingSelect = document.getElementById('temp-assignment-select');
+    if (existingSelect) {
+        existingSelect.remove();
+    }
+}
+
+async function handleAssignmentClick(event) {
+    const assignmentDiv = event.target.closest('.assigned-position, .assignment-skipped');
+    if (!assignmentDiv) return; // Click wasn't on an assignment
+
+    const cell = assignmentDiv.closest('td');
+    if (!cell) return;
+    const dateStr = cell.dataset.date;
+    if (!dateStr) return;
+
+    // Don't allow editing on past days
+    if (cell.classList.contains('past-day')) {
+        console.log("Cannot manually assign on past days.");
+        return;
+    }
+
+    // Remove any existing dropdown
+    removeAssignmentSelect();
+
+    const strongTag = assignmentDiv.querySelector('strong');
+    if (!strongTag) return; // Should always exist
+
+    const positionName = strongTag.textContent.replace(':', '').trim();
+    const positionInfo = positions.find(p => p.name === positionName);
+    if (!positionInfo) {
+        console.error(`Position info not found for "${positionName}"`);
+        return;
+    }
+
+    // Find qualified & available members for this position on this date
+    const availableQualifiedMembers = teamMembers.filter(member => {
+        return isMemberQualified(member.name, positionInfo.id) && !isMemberUnavailable(member.name, dateStr);
+    }).sort((a, b) => a.name.localeCompare(b.name)); // Sort members alphabetically
+
+    const currentMemberName = assignmentDiv.classList.contains('assigned-position')
+        ? assignmentDiv.textContent.split(':')[1]?.trim()
+        : null; // Null if skipped
+
+    // Create the select element
+    const select = document.createElement('select');
+    select.id = 'temp-assignment-select'; // ID for easy removal
+    select.style.position = 'absolute'; // Position near the click
+    select.style.left = `${event.offsetX}px`;
+    select.style.top = `${event.offsetY}px`; // Adjust as needed
+    select.style.zIndex = '10'; // Ensure it's above other cell content
+    select.style.minWidth = '100px';
+
+    // Option to revert to automatic
+    const autoOption = document.createElement('option');
+    autoOption.value = ''; // Empty value signifies automatic/clear hold
+    autoOption.textContent = '-- Automatic --';
+    select.appendChild(autoOption);
+
+    // Populate with available members
+    availableQualifiedMembers.forEach(member => {
+        const option = document.createElement('option');
+        option.value = member.name;
+        option.textContent = member.name;
+        if (member.name === currentMemberName) {
+            option.selected = true; // Select the currently assigned member
+        }
+        select.appendChild(option);
+    });
+
+    // Add event listener to handle selection change
+    select.addEventListener('change', async () => {
+        const selectedMemberName = select.value || null; // null if '-- Automatic --' is chosen
+        await updateManualAssignment(dateStr, positionName, selectedMemberName, assignmentDiv, cell);
+        removeAssignmentSelect(); // Remove dropdown after selection
+    });
+
+    // Add listener to remove dropdown if user clicks outside
+    select.addEventListener('blur', () => {
+        // Delay removal slightly to allow change event to fire first
+        setTimeout(removeAssignmentSelect, 150);
+    });
+
+    // Append select to the cell (or assignmentDiv) and focus it
+    cell.appendChild(select);
+    select.focus();
+}
+
+async function updateManualAssignment(dateStr, positionName, selectedMemberName, assignmentDiv, cell) {
+    console.log(`Updating manual assignment: ${dateStr} - ${positionName} -> ${selectedMemberName || 'Automatic'}`);
+
+    try {
+        const response = await fetch('/api/assignment/set', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: dateStr, position_name: positionName, member_name: selectedMemberName })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ message: `HTTP error ${response.status}` }));
+            throw new Error(errorData.message || `Failed to set assignment (status ${response.status})`);
+        }
+
+        console.log('Manual assignment update successful.');
+
+        // Update local heldDays state
+        let dateHolds = heldDays.get(dateStr) || [];
+        // Remove existing entry for this position
+        dateHolds = dateHolds.filter(h => h.position_name !== positionName);
+        if (selectedMemberName) {
+            // Add the new manual assignment
+            dateHolds.push({ position_name: positionName, member_name: selectedMemberName });
+        }
+        if (dateHolds.length > 0) {
+            heldDays.set(dateStr, dateHolds);
+        } else {
+            heldDays.delete(dateStr); // Remove entry if no holds left for this date
+        }
+
+        // Update the UI immediately
+        if (selectedMemberName) {
+            assignmentDiv.innerHTML = `<strong>${positionName}:</strong> ${selectedMemberName}`;
+            assignmentDiv.className = 'assigned-position held'; // Mark as manually assigned (held)
+        } else {
+            // Need to re-run assignment logic for just this slot or re-render the day?
+            // Simplest immediate UI update: revert to a placeholder or the original state *before* the click
+            // For a true 'automatic', we'd need to recalculate. Re-rendering the whole calendar might be easiest.
+            // Let's just re-render the calendar for simplicity after clearing a manual hold.
+            console.log("Cleared manual hold, re-rendering calendar...");
+            // assignmentDiv.innerHTML = `<strong>${positionName}:</strong> <span class="skipped-text">(Automatic)</span>`; // Placeholder text
+            // assignmentDiv.className = 'assignment-skipped'; // Or assigned-position if calc needed
+             renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Re-render to apply auto logic
+        }
+
+         // Update the main hold checkbox state for the day
+         const holdCheckbox = cell.querySelector('.hold-checkbox');
+         if (holdCheckbox) {
+             holdCheckbox.checked = heldDays.has(dateStr);
+         }
+
+    } catch (error) {
+        console.error('Error updating manual assignment:', error);
+        alert(`Error setting assignment: ${error.message}`);
+        // Optionally revert UI or keep the select open on error
+    }
+}
+
 function renderCalendar(year, month) {
     calendarBody.innerHTML = '';
     let mobileView = document.getElementById('calendar-body-mobile');
@@ -571,63 +718,60 @@ function renderCalendar(year, month) {
                 holdCheckbox.className = 'hold-checkbox';
                 holdCheckbox.id = `hold-${currentCellDateStr}`;
                 holdCheckbox.addEventListener('change', async (e) => {
+                    const assignmentsToHold = [];
+                    cell.querySelectorAll('.assigned-position').forEach(div => {
+                        const strongTag = div.querySelector('strong');
+                        if (!strongTag) return;
+                        const posName = strongTag.textContent.replace(':', '').trim();
+                        const memName = div.textContent.split(':')[1]?.trim();
+                        if (posName && memName) {
+                            assignmentsToHold.push({ date: currentCellDateStr, position_name: posName, member_name: memName });
+                        }
+                    });
+
                     if (e.target.checked) {
-                        const assignments = Array.from(cell.querySelectorAll('.assigned-position')).map(div => {
-                            const positionName = div.querySelector('strong').textContent;
-                            const memberName = div.textContent.split(':')[1].trim();
-                            return {
-                                date: currentCellDateStr,
-                                position_name: positionName,
-                                member_name: memberName
-                            };
-                        });
-                        
                         try {
                             const response = await fetch('/api/held-assignments', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ assignments })
+                                body: JSON.stringify({ assignments: assignmentsToHold })
                             });
-                            
                             if (response.ok) {
-                                heldDays.set(currentCellDateStr, assignments);
-                            } else {
-                                e.target.checked = false;
-                                alert('Failed to save held assignments');
-                            }
+                                heldDays.set(currentCellDateStr, assignmentsToHold);
+                                assignmentsToHold.forEach(a => {
+                                    const div = Array.from(cell.querySelectorAll('.assigned-position')).find(d =>
+                                        d.querySelector('strong')?.textContent.includes(a.position_name)
+                                    );
+                                    div?.classList.add('held');
+                                });
+                            } else { throw new Error('Failed to save'); }
                         } catch (error) {
-                            console.error('Error saving held assignments:', error);
+                            console.error('Error saving holds:', error);
                             e.target.checked = false;
-                            alert('Error saving held assignments');
+                            alert('Failed to save holds for this day.');
                         }
                     } else {
                         try {
-                            const response = await fetch(`/api/held-assignments/${currentCellDateStr}`, {
-                                method: 'DELETE'
-                            });
-                            
+                            const response = await fetch(`/api/held-assignments/${currentCellDateStr}`, { method: 'DELETE' });
                             if (response.ok) {
                                 heldDays.delete(currentCellDateStr);
-                            } else {
-                                e.target.checked = true;
-                                alert('Failed to remove held assignments');
-                            }
+                                cell.querySelectorAll('.assigned-position.held').forEach(div => div.classList.remove('held'));
+                            } else { throw new Error('Failed to delete'); }
                         } catch (error) {
-                            console.error('Error removing held assignments:', error);
+                            console.error('Error clearing holds:', error);
                             e.target.checked = true;
-                            alert('Error removing held assignments');
+                            alert('Failed to clear holds for this day.');
                         }
                     }
                 });
-
                 const holdLabel = document.createElement('label');
                 holdLabel.htmlFor = `hold-${currentCellDateStr}`;
-                holdLabel.textContent = 'Hold';
+                holdLabel.textContent = 'Hold Day';
                 holdLabel.className = 'hold-label';
 
                 const smallRandomizeBtn = document.createElement('button');
                 smallRandomizeBtn.className = 'small-randomize-btn';
-                smallRandomizeBtn.title = 'Randomize this day';
+                smallRandomizeBtn.title = 'Randomize this day (if not held)';
                 smallRandomizeBtn.textContent = '🎲';
                 smallRandomizeBtn.onclick = (e) => {
                     e.preventDefault();
@@ -665,7 +809,6 @@ function renderCalendar(year, month) {
                                     isMemberQualified(memberName, positionInfo.id))
                                 {
                                     div.innerHTML = `<strong>${positionInfo.name}:</strong> ${memberName}`;
-                                    div.className = 'assigned-position';
                                     assigned = true;
                                     currentAssignmentCounter = (currentAssignmentCounter + attempts + 1) % maxAttempts;
                                 }
@@ -674,7 +817,6 @@ function renderCalendar(year, month) {
 
                             if (!assigned) {
                                 div.innerHTML = `<strong>${positionInfo.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
-                                div.className = 'assignment-skipped';
                                 currentAssignmentCounter = (currentAssignmentCounter + 1) % maxAttempts;
                             }
                         });
@@ -767,8 +909,9 @@ function renderCalendar(year, month) {
                                 {
                                     assignedMemberName = potentialMemberName;
                                     assignmentCounter = (assignmentCounter + attempts + 1);
+                                } else {
+                                    attempts++;
                                 }
-                                attempts++;
                             }
 
                             if (assignedMemberName) {
@@ -782,6 +925,13 @@ function renderCalendar(year, month) {
                                 }
                             }
                         }
+
+                        if (!cell.classList.contains('past-day')) {
+                            assignmentDiv.addEventListener('click', handleAssignmentClick);
+                            assignmentDiv.style.cursor = 'pointer';
+                            assignmentDiv.title = 'Click to manually assign';
+                        }
+
                         cell.appendChild(assignmentDiv);
                     });
 
@@ -836,39 +986,39 @@ function renderCalendar(year, month) {
         const dayContent = document.createElement('div');
         dayContent.className = 'mobile-day-content';
 
-        let positionsForThisDay = [];
-        const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
+        let positionsForThisMobileDay = [];
+        const isOverrideMobile = overrideDays.some(o => o.date === currentCellDateStr);
 
         positions.forEach(position => {
             let shouldAdd = false;
             if (position.assignment_type === 'regular') {
-                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride;
+                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideMobile;
             } else if (position.assignment_type === 'specific_days') {
                 const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
                 shouldAdd = allowed.includes(currentDayOfWeek.toString());
             }
             if (shouldAdd) {
-                positionsForThisDay.push(position);
+                positionsForThisMobileDay.push(position);
             }
         });
 
-        const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
-        todaysSpecialAssignments.forEach(sa => {
+        const todaysSpecialMobile = specialAssignments.filter(sa => sa.date === currentCellDateStr);
+        todaysSpecialMobile.forEach(sa => {
             const positionInfo = positions.find(p => p.id === sa.position_id);
             if (positionInfo) {
-                positionsForThisDay.push(positionInfo);
+                positionsForThisMobileDay.push(positionInfo);
             }
         });
 
-        positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+        positionsForThisMobileDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
 
         let eventTime = null;
-        if (positionsForThisDay.length > 0) {
+        if (positionsForThisMobileDay.length > 0) {
             const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
             if (overrideInfo && overrideInfo.time) {
                 eventTime = overrideInfo.time;
             } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
-                 const hasRegularAssignment = positionsForThisDay.some(p => {
+                 const hasRegularAssignment = positionsForThisMobileDay.some(p => {
                     const positionDetails = positions.find(pos => pos.id === p.id);
                     return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
                 });
@@ -884,15 +1034,15 @@ function renderCalendar(year, month) {
             }
         }
 
-        if (canAssign && positionsForThisDay.length > 0) {
+        if (canAssign && positionsForThisMobileDay.length > 0) {
              dayItem.classList.add('assignment-day');
-             const todaysHeldAssignments = heldDays.get(currentCellDateStr) || [];
+             const todaysHeldAssignmentsMobile = heldDays.get(currentCellDateStr) || [];
 
-            positionsForThisDay.forEach(position => {
+            positionsForThisMobileDay.forEach(position => {
                 const assignmentDiv = document.createElement('div');
                 let assignedMemberName = null;
 
-                const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
+                const heldAssignment = todaysHeldAssignmentsMobile.find(h => h.position_name === position.name);
 
                 if (heldAssignment) {
                     assignedMemberName = heldAssignment.member_name;
@@ -903,13 +1053,14 @@ function renderCalendar(year, month) {
                     while (assignedMemberName === null && attempts < memberCount) {
                         const potentialMemberIndex = (mobileAssignmentCounter + attempts) % memberCount;
                         const potentialMemberName = membersForAssignment[potentialMemberIndex];
-
                         if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
                             isMemberQualified(potentialMemberName, position.id))
                         {
                             assignedMemberName = potentialMemberName;
                             mobileAssignmentCounter = (mobileAssignmentCounter + attempts + 1);
-                        } else { attempts++; }
+                        } else {
+                            attempts++;
+                        }
                     }
                     if (assignedMemberName) {
                         assignmentDiv.className = 'assigned-position';
@@ -920,6 +1071,13 @@ function renderCalendar(year, month) {
                         if (attempts === memberCount) mobileAssignmentCounter++;
                     }
                 }
+
+                if (!dayItem.classList.contains('past-day')) {
+                    assignmentDiv.addEventListener('click', handleAssignmentClick);
+                    assignmentDiv.style.cursor = 'pointer';
+                    assignmentDiv.title = 'Click to manually assign';
+                }
+
                 dayContent.appendChild(assignmentDiv);
             });
 
@@ -1387,7 +1545,7 @@ randomizeBtn.addEventListener('click', () => {
 
                 const checkbox = cell.querySelector('.hold-checkbox');
                 if (checkbox) {
-                    checkbox.checked = true;
+                    checkbox.checked = heldDays.has(dateStr);
                 }
             }
         });
