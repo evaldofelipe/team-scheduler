@@ -46,6 +46,9 @@ const removedAssignmentPositionSelect = document.getElementById('removedAssignme
 const addRemovedAssignmentBtn = document.getElementById('addRemovedAssignmentBtn');
 const removedAssignmentsList = document.getElementById('removed-assignments-list');
 // <<< END ADDED >>>
+// <<< ADDED: Upcoming Notifications Selectors >>>
+const upcomingNotificationsList = document.getElementById('upcoming-notifications-list');
+// --- End ADDED ---
 
 // --- State Variables ---
 let currentDate = new Date();
@@ -1212,36 +1215,41 @@ function applyHeldVisuals() {
     });
 }
 
-async function apiCall(url, options, successCallback, errorCallback) {
+// Generic API call helper
+async function apiCall(url, options = {}, successCallback, errorCallback) {
     console.log(`Making API call to ${url}`, options);
     try {
         const response = await fetch(url, options);
         console.log(`Response status: ${response.status}`);
 
+        // Handle 304 Not Modified specifically - browser uses cache, no body to parse
+        if (response.status === 304) {
+            console.log(`API Call to ${url}: Status 304 - Not Modified (Using Cache)`);
+            // If it's a GET request, this is fine, the browser has the data.
+            // If it's a POST/PUT/DELETE, a 304 is unexpected but we shouldn't crash.
+            // We won't call successCallback as there's no new data.
+            return true; // Indicate the call itself didn't fail network-wise.
+        }
+
         if (response.status === 401 || response.status === 403) {
-            window.location.href = '/login.html?message=Session expired...';
+            // Redirect to login if unauthorized or forbidden
+            window.location.href = '/login.html?message=Session expired or insufficient privileges. Please log in again.';
             return false;
         }
 
-        const isSuccess = response.ok || (options.method === 'DELETE' && response.status === 404);
-        
-        if (isSuccess) {
-            console.log('API call successful, fetching updated data...');
-            const dataRefreshed = await fetchData();
-            
-            if (dataRefreshed) {
-                console.log('Data refresh successful, updating UI...');
-                renderTeamList();
-                renderPositionList();
-                renderUnavailableList();
-                renderOverrideDaysList();
-                renderSpecialAssignmentsList();
-                renderRemovedAssignmentsList(); // <<< ADDED: Render the new list
-                renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
-                
-                if (successCallback) successCallback();
-                return true;
+        // Check if the response was successful (status code 2xx)
+        if (response.ok) {
+            let data = {};
+            try {
+                data = await response.json();
+            } catch (e) {
+                try {
+                    const text = await response.text();
+                    if (text && !text.trim().startsWith('<')) data = text;
+                } catch(e2) {}
             }
+            if (successCallback) successCallback(data);
+            return true;
         } else {
             let errorText = `Operation failed (${response.status})`;
             try {
@@ -1698,22 +1706,44 @@ if (themeToggleBtn) {
 async function initializeAdminView() {
     console.log("Initializing Admin View...");
     initializeTheme();
-    if (await fetchData()) {
-        console.log("Data fetch successful. Rendering components.");
+
+    // Set initial button text
+    prevMonthBtn.textContent = '< Prev';
+    nextMonthBtn.textContent = 'Next >';
+
+    // Add tooltips if needed (make sure titles are set in HTML)
+    // setupTooltips();
+
+    // showLoadingIndicator(true); // Show loading indicator -- REMOVED
+    const dataFetched = await fetchData();
+    // showLoadingIndicator(false); // Hide loading indicator -- REMOVED
+
+    if (dataFetched) {
+        console.log("Initial data fetched successfully. Rendering components.");
+        // Populate dropdowns FIRST
+        populateMemberDropdown();
+        populateSpecialAssignmentPositionDropdown();
+        populateRemovedAssignmentPositionDropdown();
+        // Render lists
         renderTeamList();
         renderPositionList();
         renderUnavailableList();
         renderOverrideDaysList();
         renderSpecialAssignmentsList();
-        renderRemovedAssignmentsList(); // <<< ADDED: Render the new list
+        renderRemovedAssignmentsList();
+        // <<< ADDED: Fetch and render upcoming notifications >>>
+        await fetchUpcomingNotifications();
+        // Render calendar last (relies on other data being processed)
         renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+        // Apply visual cues for held assignments after calendar is rendered
         applyHeldVisuals();
     } else {
-         console.error("Initialization failed due to data fetch error.");
-         const schedulerDiv = document.getElementById('scheduler');
-         if(schedulerDiv) {
-            schedulerDiv.innerHTML = '<p style="color: red; padding: 20px;">Failed to load scheduler data. Please check the console for errors and try refreshing the page.</p>';
-         }
+        console.error("Initialization failed due to data fetch error. Check console.");
+        // Optionally display a persistent error message to the user
+        const mainView = document.getElementById('calendar-view');
+        if(mainView) {
+            mainView.innerHTML = '<p style="color: var(--button-danger-bg); padding: 20px;">Failed to load critical scheduler data. Please try refreshing the page or contact support.</p>';
+        }
     }
 }
 
@@ -2115,5 +2145,66 @@ async function removeRemovedAssignment(idToRemove) {
         method: 'DELETE'
     });
     // No need to call renderRemovedAssignmentsList here, apiCall handles refresh
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Render Upcoming Automated Notifications >>>
+function renderUpcomingNotifications(upcoming = []) {
+    if (!upcomingNotificationsList) return;
+    upcomingNotificationsList.innerHTML = ''; // Clear previous list
+
+    if (upcoming.length === 0) {
+        const li = document.createElement('li');
+        li.textContent = 'No upcoming automated notifications scheduled.';
+        li.style.fontStyle = 'italic';
+        li.style.color = 'var(--text-secondary)';
+        upcomingNotificationsList.appendChild(li);
+        return;
+    }
+
+    // Optional: Format date/time nicely
+    const options = { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false };
+
+    upcoming.forEach(notif => {
+        const li = document.createElement('li');
+        const notificationDate = new Date(notif.notificationTime);
+        let formattedTime = 'Invalid Date';
+        try {
+            formattedTime = notificationDate.toLocaleString(undefined, options);
+        } catch (e) {
+            console.warn("Could not format notification date:", notif.notificationTime, e);
+        }
+
+        li.innerHTML = `
+            <span class="upcoming-time">[${formattedTime}]</span>
+            <span class="upcoming-details">${notif.memberName} (${notif.positionName} on ${notif.assignmentDate})</span>
+        `;
+        upcomingNotificationsList.appendChild(li);
+    });
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Fetch Upcoming Notifications function >>>
+async function fetchUpcomingNotifications() {
+    console.log("Fetching upcoming notifications...");
+    await apiCall('/api/upcoming-notifications', { method: 'GET' },
+        (data) => {
+            console.log("Upcoming notifications data:", data);
+            if (data.success) {
+                renderUpcomingNotifications(data.upcoming);
+            } else {
+                 console.error("Failed to fetch upcoming notifications:", data.message);
+                 renderUpcomingNotifications([]); // Render empty list on error
+            }
+        },
+        (errorStatus, errorText) => {
+            console.error(`Error fetching upcoming notifications: ${errorStatus} ${errorText}`);
+            renderUpcomingNotifications([]); // Render empty list on error
+            // Display error in the list itself
+            if (upcomingNotificationsList) {
+                upcomingNotificationsList.innerHTML = '<li><span style="color: var(--button-danger-bg);">Error loading upcoming notifications.</span></li>';
+            }
+        }
+    );
 }
 // <<< END ADDED >>>

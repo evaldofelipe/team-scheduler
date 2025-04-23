@@ -6,6 +6,7 @@ const session = require('express-session');
 const path = require('path');
 const bcrypt = require('bcrypt');
 const twilio = require('twilio'); // <<< ADDED: Twilio library
+const cron = require('node-cron'); // <<< ADDED: Cron job scheduler
 
 // --- Configuration ---
 const PORT = process.env.PORT || 3000;
@@ -19,6 +20,13 @@ const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
 const APP_URL = process.env.APP_URL || 'http://localhost:' + PORT; // Default to localhost if not set
 const SMS_BODY_TEMPLATE = process.env.SMS_BODY_TEMPLATE || '[Schedule] You are scheduled on {DAY_OF_WEEK}, {DATE} at {TIME}! Check: {APP_URL}';
 const SMS_GENERIC_TEMPLATE = process.env.SMS_GENERIC_TEMPLATE || '[Schedule] Reminder: Please check your schedule at {APP_URL}'; // For individual button
+
+// <<< ADDED: Automation Config >>>
+const AUTOMATION_CHECK_INTERVAL = process.env.AUTOMATION_CHECK_INTERVAL || '0 * * * *'; // Default: hourly
+const NOTIFY_HOURS_BEFORE = parseInt(process.env.NOTIFY_HOURS_BEFORE || '24'); // Default: 24 hours
+const NOTIFY_WINDOW_HOURS = parseInt(process.env.NOTIFY_WINDOW_HOURS || '1'); // Default: 1 hour
+const MIN_SMS_INTERVAL_SECONDS = parseInt(process.env.MIN_SMS_INTERVAL_SECONDS || '3600'); // Default: 1 hour (3600 seconds)
+// <<< END ADDED >>>
 
 // <<< ADDED: Backend equivalent of default times and days >>>
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat (0=Sun, 6=Sat)
@@ -68,6 +76,31 @@ if (!process.env.APP_URL) {
     console.warn('************************************************************************');
     console.warn(`WARNING: APP_URL not set in .env. Defaulting to ${APP_URL}`);
     console.warn('************************************************************************');
+}
+if (isNaN(NOTIFY_HOURS_BEFORE) || NOTIFY_HOURS_BEFORE < 0) {
+    console.warn('************************************************************************');
+    console.warn(`WARNING: Invalid NOTIFY_HOURS_BEFORE value in .env. Using default: 24`);
+    console.warn('************************************************************************');
+    NOTIFY_HOURS_BEFORE = 24;
+}
+if (isNaN(NOTIFY_WINDOW_HOURS) || NOTIFY_WINDOW_HOURS <= 0) {
+    console.warn('************************************************************************');
+    console.warn(`WARNING: Invalid NOTIFY_WINDOW_HOURS value in .env. Using default: 1`);
+    console.warn('************************************************************************');
+    NOTIFY_WINDOW_HOURS = 1;
+}
+if (isNaN(MIN_SMS_INTERVAL_SECONDS) || MIN_SMS_INTERVAL_SECONDS < 0) {
+    console.warn('************************************************************************');
+    console.warn(`WARNING: Invalid MIN_SMS_INTERVAL_SECONDS value in .env. Using default: 3600`);
+    console.warn('************************************************************************');
+    MIN_SMS_INTERVAL_SECONDS = 3600;
+}
+if (!cron.validate(AUTOMATION_CHECK_INTERVAL)) {
+    console.warn('************************************************************************');
+    console.error(`ERROR: Invalid AUTOMATION_CHECK_INTERVAL cron pattern: "${AUTOMATION_CHECK_INTERVAL}". Automation disabled.`);
+    console.warn('************************************************************************');
+    // Disable automation if pattern is invalid
+    AUTOMATION_CHECK_INTERVAL = null;
 }
 
 // --- Express App Setup ---
@@ -155,7 +188,255 @@ function normalizeAllowedDays(daysString) {
                            .sort(); // Sort for consistency
     return [...new Set(days)].join(','); // Remove duplicates and join
 }
+// <<< ADDED: Format date helper (consistent with frontend) >>>
+function formatDateYYYYMMDD(dateInput) {
+    try {
+        const date = new Date(dateInput);
+        // Use UTC methods to avoid timezone shifts when constructing the date string
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    } catch (e) {
+        console.error("Error formatting date:", dateInput, e);
+        return null;
+    }
+}
+// <<< END ADDED >>>
 
+// <<< ADDED: In-memory store for recently sent automated notifications >>>
+// Stores: { 'YYYY-MM-DD_PositionName_MemberName': timestamp_ms }
+const recentlySentNotifications = {};
+
+// Function to clean up old entries from the store (optional, but good practice)
+function cleanupSentNotifications() {
+    const now = Date.now();
+    const cutoff = now - (MIN_SMS_INTERVAL_SECONDS * 1000 * 1.5); // Keep slightly longer than needed
+    Object.keys(recentlySentNotifications).forEach(key => {
+        if (recentlySentNotifications[key] < cutoff) {
+            delete recentlySentNotifications[key];
+        }
+    });
+    // console.log(`Cleaned up notification cache. Size: ${Object.keys(recentlySentNotifications).length}`);
+}
+// Schedule cleanup (e.g., every few hours)
+cron.schedule('0 */6 * * *', cleanupSentNotifications); // Every 6 hours
+// <<< END ADDED >>>
+
+// <<< ADDED: Helper function to fetch all data needed for simulation >>>
+async function fetchAllDataForSimulation() {
+    try {
+        const [members] = await pool.query('SELECT name, phone_number FROM team_members ORDER BY name');
+        const [unavail] = await pool.query('SELECT member_name, unavailable_date FROM unavailability');
+        const [positions] = await pool.query('SELECT id, name, display_order, assignment_type, allowed_days FROM positions ORDER BY display_order, name');
+        const [overrides] = await pool.query('SELECT override_date, override_time FROM override_assignment_days');
+        const [special] = await pool.query('SELECT assignment_date, position_id FROM special_assignments');
+        const [removed] = await pool.query('SELECT assignment_date, position_id FROM removed_assignments');
+        const [memberPosRows] = await pool.query('SELECT member_name, position_id FROM member_positions');
+        const [held] = await pool.query('SELECT assignment_date, position_name, member_name FROM held_assignments');
+
+        // Process member positions into a Map for easier lookup
+        const memberPositionsMap = new Map();
+        memberPosRows.forEach(row => {
+            const positionsForMember = memberPositionsMap.get(row.member_name) || new Set();
+            positionsForMember.add(row.position_id);
+            memberPositionsMap.set(row.member_name, positionsForMember);
+        });
+
+        // Process overrides into a Map
+        const overrideMap = new Map();
+        overrides.forEach(o => overrideMap.set(o.override_date, o.override_time ? o.override_time.substring(0, 5) : null));
+
+        // Process held assignments into a Map { dateStr => Map { positionName => memberName } }
+        const heldMap = new Map();
+        held.forEach(h => {
+            const dateStr = h.assignment_date;
+            if (!heldMap.has(dateStr)) {
+                heldMap.set(dateStr, new Map());
+            }
+            heldMap.get(dateStr).set(h.position_name, h.member_name);
+        });
+
+        return {
+            members, // Array of {name, phone_number}
+            unavailability: unavail.map(u => ({ ...u, date: u.unavailable_date })), // Standardize date key
+            positions, // Array of position objects
+            overrideMap, // Map { dateStr => timeStr | null }
+            specialAssignments: special.map(s => ({ ...s, date: s.assignment_date })), // Standardize date key
+            removedAssignments: removed.map(r => ({ ...r, date: r.assignment_date})), // Standardize date key
+            memberPositionsMap, // Map { memberName => Set<positionId> }
+            heldMap // Map { dateStr => Map { positionName => memberName } }
+        };
+    } catch (error) {
+        console.error("Error fetching data for assignment simulation:", error);
+        return null; // Indicate failure
+    }
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Placeholder for the core assignment simulation logic >>>
+// This function needs to replicate the frontend logic for determining assignments
+async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulationData) {
+    const assignments = new Map(); // { dateStr => [{ position, assignedMemberName, isHeld, eventTime }, ...] }
+    if (!simulationData) return assignments; // Return empty if data fetch failed
+
+    const { members, unavailability, positions, overrideMap, specialAssignments, removedAssignments, memberPositionsMap, heldMap } = simulationData;
+
+    const membersForAssignment = members.map(m => m.name); // Just need names for rotation
+    const memberCount = membersForAssignment.length;
+    if (memberCount === 0) return assignments; // No members to assign
+
+    let assignmentCounter = 0; // Simple rotation counter for simulation
+    const startDate = new Date(startDateStr + 'T00:00:00Z');
+    const endDate = new Date(endDateStr + 'T00:00:00Z');
+
+    // --- Helper: Check unavailability (more efficient lookup) ---
+    const unavailSet = new Map(); // { dateStr => Set<memberName> }
+    unavailability.forEach(u => {
+        const dateStr = u.date; // Already formatted YYYY-MM-DD
+        if (!unavailSet.has(dateStr)) {
+            unavailSet.set(dateStr, new Set());
+        }
+        unavailSet.get(dateStr).add(u.member_name);
+    });
+    const isMemberUnavailable = (memberName, dateStr) => {
+        return unavailSet.has(dateStr) && unavailSet.get(dateStr).has(memberName);
+    };
+    // --- Helper: Check qualification ---
+    const isMemberQualified = (memberName, positionId) => {
+        return memberPositionsMap.has(memberName) && memberPositionsMap.get(memberName).has(positionId);
+    };
+     // --- Helper: Check if assignment is removed ---
+    const removedSet = new Map(); // { dateStr => Set<positionId> }
+    removedAssignments.forEach(r => {
+        const dateStr = r.date;
+        if (!removedSet.has(dateStr)) {
+            removedSet.set(dateStr, new Set());
+        }
+        removedSet.get(dateStr).add(r.position_id);
+    });
+    const isAssignmentRemoved = (dateStr, positionId) => {
+        return removedSet.has(dateStr) && removedSet.get(dateStr).has(positionId);
+    };
+
+    // Iterate through each day in the range
+    let currentDate = startDate;
+    while (currentDate <= endDate) {
+        const currentDateStr = formatDateYYYYMMDD(currentDate);
+        const currentDayOfWeek = currentDate.getUTCDay(); // 0 = Sun, 6 = Sat
+        const isOverride = overrideMap.has(currentDateStr);
+        const todaysHeldMap = heldMap.get(currentDateStr) || new Map();
+
+        let positionsForThisDay = [];
+        // Determine active positions (similar logic to frontend renderCalendar)
+        positions.forEach(position => {
+            let shouldAdd = false;
+            const allowed = position.allowed_days ? position.allowed_days.split(',').map(d => parseInt(d.trim(), 10)) : [];
+
+            if (position.assignment_type === 'specific_days') {
+                if (allowed.includes(currentDayOfWeek)) {
+                    shouldAdd = true;
+                }
+            } else { // 'regular' type
+                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride) {
+                    shouldAdd = true;
+                }
+            }
+            if (shouldAdd && !positionsForThisDay.some(p => p.id === position.id)) {
+                positionsForThisDay.push(position);
+            }
+        });
+
+        // Add special assignments
+        specialAssignments.forEach(sa => {
+            if (sa.date === currentDateStr) {
+                const positionInfo = positions.find(p => p.id === sa.position_id);
+                if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
+                    positionsForThisDay.push(positionInfo);
+                }
+            }
+        });
+
+        // Filter out removed assignments
+        positionsForThisDay = positionsForThisDay.filter(p => !isAssignmentRemoved(currentDateStr, p.id));
+
+        // Sort positions
+        positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+        const dailyAssignments = [];
+        if (memberCount > 0 && positionsForThisDay.length > 0) {
+            positionsForThisDay.forEach(position => {
+                let assignedMemberName = null;
+                let isHeld = false;
+
+                // Check for held assignment first
+                if (todaysHeldMap.has(position.name)) {
+                    assignedMemberName = todaysHeldMap.get(position.name);
+                    isHeld = true;
+                    // Don't advance counter for holds
+                } else {
+                    // Automatic assignment logic
+                    let attempts = 0;
+                    while (assignedMemberName === null && attempts < memberCount) {
+                        const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
+                        const potentialMemberName = membersForAssignment[potentialMemberIndex];
+
+                        if (!isMemberUnavailable(potentialMemberName, currentDateStr) &&
+                            isMemberQualified(potentialMemberName, position.id))
+                        {
+                            assignedMemberName = potentialMemberName;
+                            assignmentCounter = (assignmentCounter + attempts + 1); // Advance counter *only* on successful assignment
+                        } else {
+                            attempts++;
+                        }
+                    }
+                    // If loop finishes without assignment (everyone unavailable/unqualified), advance counter once
+                    if (assignedMemberName === null && attempts === memberCount) {
+                        assignmentCounter++;
+                    }
+                }
+
+                if (assignedMemberName) {
+                    // Determine event time for this specific assignment
+                    // <<< MODIFIED: Pass simulationData.overrideMap to determineEventTime >>>
+                    const eventTime = determineEventTime(currentDateStr, currentDayOfWeek, isOverride, position.assignment_type, simulationData.overrideMap);
+                    dailyAssignments.push({ position, assignedMemberName, isHeld, eventTime });
+                }
+                // else: assignment skipped, don't add to list
+            });
+
+             if (memberCount > 0) { assignmentCounter %= memberCount; } else { assignmentCounter = 0; }
+        }
+
+        if (dailyAssignments.length > 0) {
+            assignments.set(currentDateStr, dailyAssignments);
+        }
+
+        // Move to the next day
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+    }
+
+    return assignments;
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Helper to determine event time >>>
+// <<< MODIFIED: Accept overrideMap as an argument >>>
+function determineEventTime(dateStr, dayOfWeek, isOverrideDay, positionType, overrideMap) {
+    const overrideTime = overrideMap.get(dateStr);
+    if (overrideTime) {
+        return overrideTime; // Override time takes precedence
+    }
+    // Check regular times only if it wasn't an override OR if the position is 'regular'
+    // (Specific day positions shouldn't use regular times unless the day IS an override day)
+    if (positionType === 'regular' || isOverrideDay) {
+         if (REGULAR_TIMES.hasOwnProperty(dayOfWeek)) {
+            return REGULAR_TIMES[dayOfWeek];
+        }
+    }
+    return null; // No specific time determined
+}
+// <<< END ADDED >>>
 
 // --- API Routes ---
 
@@ -1062,8 +1343,218 @@ app.delete('/api/removed-assignments/:id', requireLogin('admin'), async (req, re
 });
 // --- END REMOVED ASSIGNMENTS API ---
 
+// <<< MODIFIED ENDPOINT: Get upcoming scheduled notifications (for Admin UI) >>>
+app.get('/api/upcoming-notifications', requireLogin('admin'), async (req, res) => {
+    console.log("GET /api/upcoming-notifications called");
+    const simulationData = await fetchAllDataForSimulation();
+    if (!simulationData) {
+        return res.status(500).json({ success: false, message: "Failed to fetch data for simulation.", upcoming: [] });
+    }
+
+    const upcomingNotifications = [];
+    const today = new Date();
+    const startDate = new Date(today);
+    const endDate = new Date(today);
+    endDate.setDate(today.getDate() + 7); // Look ahead 7 days
+
+    const startDateStr = formatDateYYYYMMDD(startDate);
+    const endDateStr = formatDateYYYYMMDD(endDate);
+
+    const simulated = await simulateAssignmentsForDateRange(startDateStr, endDateStr, simulationData);
+
+    simulated.forEach((dailyAssignments, dateStr) => {
+        dailyAssignments.forEach(assignment => {
+            const { position, assignedMemberName, eventTime } = assignment;
+            if (!eventTime) return; // Cannot schedule notification without a time
+
+            try {
+                // Combine date and time (assuming YYYY-MM-DD and HH:MM)
+                // IMPORTANT: Handle timezones carefully. Assuming server and event times are in the same intended zone.
+                // For simplicity, construct date in server's local timezone interpretation of the date/time.
+                // A more robust solution might involve storing/using UTC offsets.
+                const eventDateTimeStr = `${dateStr} ${eventTime}:00`;
+                const eventTimestamp = new Date(eventDateTimeStr).getTime();
+
+                if (isNaN(eventTimestamp)) {
+                    console.warn(`Could not parse event date/time: ${eventDateTimeStr}`);
+                    return;
+                }
+
+                const notificationTimestamp = eventTimestamp - (NOTIFY_HOURS_BEFORE * 60 * 60 * 1000);
+
+                // Only include future notifications
+                if (notificationTimestamp > Date.now()) {
+                     upcomingNotifications.push({
+                        memberName: assignedMemberName,
+                        positionName: position.name,
+                        assignmentDate: dateStr,
+                        eventTime: eventTime,
+                        notificationTime: new Date(notificationTimestamp).toISOString() // Send as ISO string
+                    });
+                }
+            } catch (e) {
+                console.error(`Error calculating notification time for ${dateStr} ${position.name}:`, e);
+            }
+        });
+    });
+
+    // Sort by notification time
+    upcomingNotifications.sort((a, b) => new Date(a.notificationTime) - new Date(b.notificationTime));
+
+    res.json({ success: true, upcoming: upcomingNotifications });
+});
+// <<< END MODIFIED ENDPOINT >>>
+
 // --- Start Server ---
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
     pool.query('SELECT 1').then(() => console.log('Database connection successful.')).catch(err => console.error('Database connection failed:', err));
 });
+
+// --- Automated Notification Logic ---
+
+// <<< MODIFIED: Function to check for upcoming assignments and send notifications >>>
+async function checkAndSendNotifications() {
+    const checkRunId = `CheckRun-${Date.now()}`;
+    console.log(`[${new Date().toISOString()}] ${checkRunId}: Running automated notification check...`);
+
+    if (!twilioClient) {
+        console.log(`[${checkRunId}] Skipping notification check: Twilio client not initialized.`);
+        return;
+    }
+
+    // 1. Fetch data
+    const simulationData = await fetchAllDataForSimulation();
+    if (!simulationData) {
+        console.error(`[${checkRunId}] Failed to fetch simulation data. Aborting check.`);
+        return;
+    }
+
+    // 2. Calculate time window and date range
+    const now = new Date();
+    const nowTimestamp = now.getTime();
+    const notifyTargetTimeStart = new Date(nowTimestamp);
+    const notifyTargetTimeEnd = new Date(nowTimestamp + (NOTIFY_WINDOW_HOURS * 60 * 60 * 1000));
+
+    // We need to simulate assignments far enough ahead to cover the notification window
+    // Example: If NOTIFY_HOURS_BEFORE is 24, and WINDOW is 1, we need assignments up to 25 hours from now.
+    const simulationEndDate = new Date(nowTimestamp + ((NOTIFY_HOURS_BEFORE + NOTIFY_WINDOW_HOURS + 1) * 60 * 60 * 1000)); // Add buffer
+    const simulationStartDate = new Date(nowTimestamp); // Start simulation from today
+
+    const startDateStr = formatDateYYYYMMDD(simulationStartDate);
+    const endDateStr = formatDateYYYYMMDD(simulationEndDate);
+
+    console.log(`[${checkRunId}] Simulating assignments from ${startDateStr} to ${endDateStr}`);
+
+    // 3. Simulate assignments
+    const simulated = await simulateAssignmentsForDateRange(startDateStr, endDateStr, simulationData);
+
+    let notificationsProcessed = 0;
+    let notificationsSent = 0;
+    let notificationsSkippedCache = 0;
+    let notificationsSkippedTime = 0;
+    let notificationsSkippedConfig = 0;
+
+    // 4. Process simulated assignments
+    simulated.forEach((dailyAssignments, dateStr) => {
+        dailyAssignments.forEach(async (assignment) => {
+            const { position, assignedMemberName, eventTime } = assignment;
+            notificationsProcessed++;
+
+            if (!eventTime) {
+                // console.log(`[${checkRunId}] Skipping ${dateStr}-${position.name}-${assignedMemberName}: No event time determined.`);
+                notificationsSkippedConfig++;
+                return;
+            }
+            if (!assignedMemberName) { // Should not happen if simulation is correct, but check
+                 notificationsSkippedConfig++;
+                 return;
+            }
+
+            try {
+                const memberInfo = simulationData.members.find(m => m.name === assignedMemberName);
+                const phoneNumber = memberInfo?.phone_number;
+                if (!phoneNumber) {
+                    // console.log(`[${checkRunId}] Skipping ${dateStr}-${position.name}-${assignedMemberName}: No phone number.`);
+                    notificationsSkippedConfig++;
+                    return;
+                }
+
+                // --- Calculate Notification Time --- 
+                // Construct event time (handle potential timezone issues simplistically)
+                const eventDateTimeStr = `${dateStr} ${eventTime}:00`;
+                const eventDateObj = new Date(eventDateTimeStr);
+                const eventTimestamp = eventDateObj.getTime();
+
+                if (isNaN(eventTimestamp)) {
+                    console.warn(`[${checkRunId}] Could not parse event date/time for notification: ${eventDateTimeStr}`);
+                    notificationsSkippedConfig++;
+                    return;
+                }
+
+                const targetNotificationTimestamp = eventTimestamp - (NOTIFY_HOURS_BEFORE * 60 * 60 * 1000);
+
+                 // --- Check if it's time to send --- 
+                if (nowTimestamp >= targetNotificationTimestamp && nowTimestamp < (targetNotificationTimestamp + (NOTIFY_WINDOW_HOURS * 60 * 60 * 1000))) {
+                    // It's within the notification window for this assignment
+
+                    // --- Check Cache --- 
+                    const assignmentKey = `${dateStr}_${position.name}_${assignedMemberName}`;
+                    const lastSent = recentlySentNotifications[assignmentKey];
+                    const minIntervalMs = MIN_SMS_INTERVAL_SECONDS * 1000;
+
+                    if (!lastSent || (nowTimestamp - lastSent > minIntervalMs)) {
+                        console.log(`[${checkRunId}] Sending notification for ${assignmentKey}...`);
+
+                        // --- Format and Send SMS --- 
+                        const dayOfWeek = eventDateObj.getUTCDay();
+                        const dayOfWeekName = DAY_NAMES_PT[dayOfWeek] || 'o dia';
+                        const formattedDate = eventDateObj.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+
+                        const messageBody = SMS_BODY_TEMPLATE
+                            .replace('{DAY_OF_WEEK}', dayOfWeekName)
+                            .replace('{DATE}', formattedDate)
+                            .replace('{TIME}', eventTime)
+                            .replace('{APP_URL}', APP_URL);
+
+                        try {
+                            const message = await twilioClient.messages.create({
+                                body: messageBody,
+                                messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
+                                to: phoneNumber
+                            });
+                            console.log(`[${checkRunId}] SMS sent successfully to ${assignedMemberName} for ${dateStr}. SID: ${message.sid}`);
+                            recentlySentNotifications[assignmentKey] = nowTimestamp; // Update cache on success
+                            notificationsSent++;
+                        } catch (smsError) {
+                            console.error(`[${checkRunId}] Error sending SMS to ${assignedMemberName} (${phoneNumber}) for ${dateStr}:`, smsError.message);
+                            // Optional: Don't update cache on failure to allow retry?
+                        }
+
+                    } else {
+                         // console.log(`[${checkRunId}] Skipping ${assignmentKey}: Sent too recently (last sent: ${new Date(lastSent).toISOString()}).`);
+                         notificationsSkippedCache++;
+                    }
+                } else {
+                    // console.log(`[${checkRunId}] Skipping ${dateStr}-${position.name}-${assignedMemberName}: Notification time (${new Date(targetNotificationTimestamp).toISOString()}) not within current window.`);
+                     notificationsSkippedTime++;
+                }
+            } catch (e) {
+                console.error(`[${checkRunId}] Error processing assignment ${dateStr}-${position.name}-${assignedMemberName}:`, e);
+                 notificationsSkippedConfig++;
+            }
+        });
+    });
+    console.log(`[${new Date().toISOString()}] ${checkRunId}: Notification check complete. Processed: ${notificationsProcessed}, Sent: ${notificationsSent}, Skipped (Cache): ${notificationsSkippedCache}, Skipped (Time): ${notificationsSkippedTime}, Skipped (Config/Error): ${notificationsSkippedConfig}`);
+}
+// <<< END MODIFIED >>>
+
+// Schedule the task if the interval is valid
+if (AUTOMATION_CHECK_INTERVAL) {
+    cron.schedule(AUTOMATION_CHECK_INTERVAL, checkAndSendNotifications);
+    console.log(`Automated notification checker scheduled with pattern: ${AUTOMATION_CHECK_INTERVAL}`);
+    // Optionally run once on startup after a delay
+    // setTimeout(checkAndSendNotifications, 5000); // Run 5 seconds after start
+} else {
+    console.log("Automated notification checker is disabled due to invalid cron pattern.");
+}
