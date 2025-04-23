@@ -42,6 +42,27 @@ function formatDateYYYYMMDD(dateInput) { /* ... unchanged ... */
     try { const date = new Date(dateInput); const year = date.getUTCFullYear(); const month = String(date.getUTCMonth() + 1).padStart(2, '0'); const day = String(date.getUTCDate()).padStart(2, '0'); return `${year}-${month}-${day}`; } catch (e) { return ""; }
 }
 
+// <<< ADDED: Helper to determine event time for a specific date >>>
+function determineEventTimeForDate(dateStr, dayOfWeek, isOverrideDay, positionsForDay) {
+    const overrideInfo = overrideDays.find(o => o.date === dateStr);
+    if (overrideInfo && overrideInfo.time) {
+        return overrideInfo.time; // Override time takes precedence
+    }
+
+    // Check regular times only if it wasn't an override OR if any position assigned today is 'regular' and today is a default assignment day
+    const hasRegularDefaultAssignment = positionsForDay.some(p => {
+        const positionDetails = positions.find(pos => pos.id === p.id); // Find full position details
+        return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek);
+    });
+
+    if ((isOverrideDay || hasRegularDefaultAssignment) && REGULAR_TIMES.hasOwnProperty(dayOfWeek)) {
+        return REGULAR_TIMES[dayOfWeek];
+    }
+
+    return null; // No specific time determined
+}
+// <<< END ADDED >>>
+
 // --- API Interaction ---
 async function fetchData() {
     console.log("Buscando dados para a visualização do usuário...");
@@ -514,6 +535,146 @@ function renderCalendar(year, month) {
     } // End mobile day loop
 }
 
+// <<< ADDED: Function to find and display the next upcoming event >>>
+function displayNextEventInfo() {
+    const displayElement = document.getElementById('next-event-display');
+    if (!displayElement) return; // Element not found
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0); // Normalize to start of UTC day
+
+    const membersForAssignment = teamMembers; // Use fetched members
+    const memberCount = membersForAssignment.length;
+
+    let nextEventFound = false;
+    let nextEventDetails = null;
+    let searchDate = new Date(today); // Start searching from today
+
+    // Simple assignment counter simulation for finding the *next* event
+    // This doesn't need to be perfectly aligned with the main calendar counter state
+    let simulationCounter = 0; 
+
+    // Search ahead (e.g., 90 days)
+    for (let i = 0; i < 90; i++) {
+        const currentDate = new Date(Date.UTC(searchDate.getUTCFullYear(), searchDate.getUTCMonth(), searchDate.getUTCDate() + i));
+        const currentDateStr = formatDateYYYYMMDD(currentDate);
+        const currentDayOfWeek = currentDate.getUTCDay();
+
+        // Determine if assignments should happen today (logic adapted from renderCalendar)
+        const isOverride = overrideDays.some(o => o.date === currentDateStr);
+        const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentDateStr);
+        let positionsForThisDay = [];
+
+        // Logic to determine positions for the day (same as renderCalendar)
+        positions.forEach(position => {
+            let shouldAdd = false;
+            const allowed = position.allowed_days ? position.allowed_days.split(',').map(d => d.trim()) : [];
+            if (position.assignment_type === 'specific_days') {
+                if (allowed.includes(currentDayOfWeek.toString())) {
+                    shouldAdd = true;
+                }
+            } else {
+                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride) {
+                    shouldAdd = true;
+                }
+            }
+            if (shouldAdd && !positionsForThisDay.some(p => p.id === position.id)) {
+                positionsForThisDay.push(position);
+            }
+        });
+        todaysSpecialAssignments.forEach(sa => {
+            const positionInfo = positions.find(p => p.id === sa.position_id);
+            if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
+                positionsForThisDay.push(positionInfo);
+            }
+        });
+        const todaysRemovedAssignments = removedAssignments.filter(ra => ra.date === currentDateStr);
+        positionsForThisDay = positionsForThisDay.filter(p => !todaysRemovedAssignments.some(ra => ra.position_id === p.id));
+        positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+        // End position determination logic
+
+        if (positionsForThisDay.length > 0 && memberCount > 0) {
+            const eventTime = determineEventTimeForDate(currentDateStr, currentDayOfWeek, isOverride, positionsForThisDay);
+
+            if (eventTime) { // Only consider days with a determined time
+                const todaysHeldAssignments = heldDays.get(currentDateStr) || [];
+                const assignmentsForThisEvent = [];
+
+                positionsForThisDay.forEach(position => {
+                    let assignedMemberName = null;
+                    const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
+
+                    if (heldAssignment) {
+                        assignedMemberName = heldAssignment.member_name;
+                        // Don't advance counter for holds
+                    } else {
+                        let attempts = 0;
+                        while (assignedMemberName === null && attempts < memberCount) {
+                            const potentialMemberIndex = (simulationCounter + attempts) % memberCount;
+                            const potentialMemberObject = membersForAssignment[potentialMemberIndex];
+                            const potentialMemberName = potentialMemberObject.name;
+
+                            if (!isMemberUnavailable(potentialMemberName, currentDateStr) &&
+                                isMemberQualified(potentialMemberName, position.id)) {
+                                assignedMemberName = potentialMemberName;
+                                simulationCounter = (simulationCounter + attempts + 1); // Advance counter
+                            } else {
+                                attempts++;
+                            }
+                        }
+                        // If no one found after checking all, advance counter once for this slot
+                        if (assignedMemberName === null && attempts === memberCount) {
+                            simulationCounter++;
+                        }
+                    }
+
+                    if (assignedMemberName) {
+                        assignmentsForThisEvent.push({ positionName: position.name, memberName: assignedMemberName });
+                    }
+                }); // End forEach position
+
+                 if (memberCount > 0) simulationCounter %= memberCount;
+
+                if (assignmentsForThisEvent.length > 0) {
+                    // Found the next event!
+                    nextEventFound = true;
+                    nextEventDetails = {
+                        date: currentDate,
+                        time: eventTime,
+                        assignments: assignmentsForThisEvent
+                    };
+                    break; // Exit the loop
+                }
+            }
+        }
+    } // End date loop
+
+    // Display the result
+    if (nextEventFound && nextEventDetails) {
+        const formattedDate = nextEventDetails.date.toLocaleDateString('pt-BR', {
+            weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC'
+        });
+        let assignmentsHtml = '<ul>';
+        nextEventDetails.assignments.forEach(a => {
+            assignmentsHtml += `<li><strong>${a.positionName}:</strong> ${a.memberName}</li>`;
+        });
+        assignmentsHtml += '</ul>';
+
+        displayElement.innerHTML = `
+            <h3>Próxima Escala:</h3>
+            <p class="next-event-date">🗓️ ${formattedDate}</p>
+            <p class="next-event-time">⏰ ${nextEventDetails.time}</p>
+            <div class="next-event-assignments">
+                <h4>Participantes:</h4>
+                ${assignmentsHtml}
+            </div>
+        `;
+    } else {
+        displayElement.innerHTML = '<p>Nenhuma próxima escala encontrada nos próximos 90 dias.</p>';
+    }
+}
+// <<< END ADDED >>>
+
 // --- Event Listeners ---
  prevMonthBtn.addEventListener('click', () => {
     currentDate.setMonth(currentDate.getMonth() - 1);
@@ -569,8 +730,9 @@ async function initializeUserView() {
     nextMonthBtn.textContent = 'Próx >';
 
     if(await fetchData()){
-        console.log("Busca de dados bem-sucedida. Renderizando calendário.");
+        console.log("Busca de dados bem-sucedida. Renderizando calendário e próxima escala.");
         renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+        displayNextEventInfo(); // <<< CALL THE NEW FUNCTION HERE
     } else {
         console.error("Inicialização falhou devido a erro na busca de dados. Mensagem de erro deve ser exibida na página.");
         // No need to modify #scheduler here, fetchData does it on error

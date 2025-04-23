@@ -97,29 +97,25 @@ html, body { height: 100%; margin: 0; padding: 0; box-sizing: border-box; }
 
 body {
     font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-    display: flex;
     background-color: var(--bg-primary);
     color: var(--text-primary);
     transition: background-color 0.3s ease, color 0.3s ease; /* Smooth theme transition */
+    padding: 20px; /* <<< ADDED: Add some padding to the body */
 }
 
 #scheduler {
-    display: flex;
-    gap: 25px;
-    padding: 20px;
     background-color: var(--bg-secondary);
     width: 100%;
-    min-height: 100%;
+    max-width: 1200px; /* <<< ADDED: Limit max width and center scheduler */
+    margin: 0 auto; /* Center the scheduler block */
     box-shadow: 0 4px 12px rgba(0,0,0,0.08);
     transition: background-color 0.3s ease;
+    display: flex; /* Make internal layout work (for user view, it's just calendar-view) */
+    flex-direction: column;
 }
 
 /* --- Admin Sidebar (#team-management) --- */
 #team-management {
-    flex: 0 1 300px;
-    min-width: 260px;
-    max-width: 400px;
-    display: flex;
     flex-direction: column;
     border-right: 1px solid var(--border-color);
     padding-right: 25px;
@@ -914,6 +910,26 @@ input:focus, select:focus {
     .mobile-day-item .small-randomize-btn { /* Renamed from .mobile-day */
         display: none;
     }
+
+    /* <<< ADDED: Hide Admin Login button on mobile >>> */
+    #adminLoginBtn {
+        display: none;
+    }
+    /* <<< END ADDED >>>
+
+    /* <<< ADDED: Fix .event-time styling for mobile list view >>> */
+    .mobile-day-header .event-time {
+        position: static; /* Override absolute positioning */
+        top: auto;
+        left: auto;
+        z-index: auto;
+        background-color: transparent; /* Remove background for simpler look */
+        padding: 0; /* Remove padding */
+        margin-left: 8px; /* Add space between date and time */
+        font-size: 0.9em; /* Adjust size if needed */
+        color: var(--text-secondary); /* Use secondary text color */
+    }
+    /* <<< END ADDED >>> */
 }
 
 /* Landscape mode adjustments */
@@ -1258,6 +1274,26 @@ body.login-page #theme-toggle {
     #calendar-body-mobile { display: block; /* Show mobile list */ }
 
     /* ... rest of mobile styles ... */
+
+    /* <<< ADDED: Hide Admin Login button on mobile >>> */
+    #adminLoginBtn {
+        display: none;
+    }
+    /* <<< END ADDED >>> */
+
+    /* <<< ADDED: Fix .event-time styling for mobile list view >>> */
+    .mobile-day-header .event-time {
+        position: static; /* Override absolute positioning */
+        top: auto;
+        left: auto;
+        z-index: auto;
+        background-color: transparent; /* Remove background for simpler look */
+        padding: 0; /* Remove padding */
+        margin-left: 8px; /* Add space between date and time */
+        font-size: 0.9em; /* Adjust size if needed */
+        color: var(--text-secondary); /* Use secondary text color */
+    }
+    /* <<< END ADDED >>> */
 }
 
 /* ... rest of style.css ... */
@@ -1333,3 +1369,66 @@ body.login-page #theme-toggle {
 }
 
 /* --- END ADDED --- */
+
+/* --- ADDED: Next Event Display Styling --- */
+.next-event-container {
+    background-color: var(--button-primary-bg); /* Use a distinct background */
+    color: var(--button-primary-text);
+    padding: 12px 18px; /* <<< REDUCED padding */
+    margin-bottom: 20px; /* Space below before the calendar */
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    border: 1px solid var(--button-primary-hover-bg);
+    /* <<< ADDED: Center and limit width on desktop >>> */
+    max-width: 700px; /* Limit width */
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.next-event-container h3 {
+    margin-top: 0;
+    margin-bottom: 8px; /* <<< REDUCED margin */
+    font-size: 1.25em; /* <<< REDUCED font size */
+    color: var(--button-primary-text);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+    padding-bottom: 4px; /* <<< REDUCED padding */
+}
+
+.next-event-date,
+.next-event-time {
+    font-size: 1.05em; /* <<< REDUCED font size */
+    margin: 4px 0; /* <<< REDUCED margin */
+    font-weight: 500;
+}
+
+.next-event-assignments {
+    margin-top: 12px; /* <<< REDUCED margin */
+    padding-top: 8px; /* <<< REDUCED padding */
+    border-top: 1px dashed rgba(255, 255, 255, 0.2);
+}
+
+.next-event-assignments h4 {
+    margin-top: 0;
+    margin-bottom: 6px; /* <<< REDUCED margin */
+    font-size: 1.0em; /* <<< REDUCED font size */
+    color: var(--button-primary-text);
+}
+
+.next-event-assignments ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.next-event-assignments li {
+    margin-bottom: 3px; /* <<< REDUCED margin */
+    font-size: 0.95em; /* <<< REDUCED font size */
+}
+
+.next-event-assignments li strong {
+    min-width: 60px;
+    display: inline-block;
+    font-weight: bold;
+    margin-right: 5px;
+}
+/* <<< END ADDED: Next Event Display Styling >>> */
