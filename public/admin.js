@@ -752,9 +752,9 @@ function renderCalendar(year, month) {
     calendarBody.innerHTML = '';
     let mobileView = document.getElementById('calendar-body-mobile');
 
-    memberAssignmentCounts.clear(); // <<< ADDED: Reset counts for the new month
-    positionAssignmentCounts.clear(); // <<< ADDED: Reset position counts
-    
+    memberAssignmentCounts.clear();
+    positionAssignmentCounts.clear();
+
     if (!mobileView) {
         mobileView = document.createElement('ul');
         mobileView.id = 'calendar-body-mobile';
@@ -769,8 +769,7 @@ function renderCalendar(year, month) {
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const daysInMonth = lastDayOfMonth.getDate();
     const startDayOfWeek = firstDayOfMonth.getDay();
-    assignmentCounter = 0;
-    let date = 1;
+    assignmentCounter = 0; // Reset global counter for auto-assignment
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -780,6 +779,113 @@ function renderCalendar(year, month) {
     const canAssign = membersForAssignment && membersForAssignment.length > 0;
     const memberCount = membersForAssignment.length;
 
+    // --- Pre-calculate Assignments and Counts --- START ---
+    const calculatedMonthlyAssignments = new Map(); // { dateStr: [{ positionName, memberName, isHeld, eventTime }, ...] }
+
+    for (let d = 1; d <= daysInMonth; d++) {
+        const currentDateObj = new Date(Date.UTC(year, month, d));
+        const currentDateStr = formatDateYYYYMMDD(currentDateObj);
+        const currentDayOfWeek = currentDateObj.getUTCDay();
+
+        let positionsForThisDay = [];
+        const isOverrideDay = overrideDays.some(o => o.date === currentDateStr);
+
+        // Determine active positions (logic copied from original loop)
+        positions.forEach(position => {
+            let shouldAdd = false;
+            if (position.assignment_type === 'regular') {
+                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay;
+            } else if (position.assignment_type === 'specific_days') {
+                const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
+                shouldAdd = allowed.includes(currentDayOfWeek.toString());
+            }
+            if (shouldAdd) {
+                positionsForThisDay.push(position);
+            }
+        });
+        const todaysSpecial = specialAssignments.filter(sa => sa.date === currentDateStr);
+        todaysSpecial.forEach(sa => {
+            const positionInfo = positions.find(p => p.id === sa.position_id);
+            if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
+                positionsForThisDay.push(positionInfo);
+            }
+        });
+        const todaysRemoved = removedAssignments.filter(ra => ra.date === currentDateStr);
+        positionsForThisDay = positionsForThisDay.filter(p => !todaysRemoved.some(ra => ra.position_id === p.id));
+        positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+        let dailyEventTime = null;
+        if (positionsForThisDay.length > 0) {
+             const overrideInfo = overrideDays.find(o => o.date === currentDateStr);
+             if (overrideInfo && overrideInfo.time) {
+                 dailyEventTime = overrideInfo.time;
+             } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
+                 const hasRegularAssignment = positionsForThisDay.some(p => {
+                     const positionDetails = positions.find(pos => pos.id === p.id);
+                     return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
+                 });
+                 if(hasRegularAssignment) {
+                      dailyEventTime = REGULAR_TIMES[currentDayOfWeek];
+                 }
+             }
+        }
+
+        const dailyAssignments = [];
+        if (canAssign && positionsForThisDay.length > 0) {
+            const todaysHeld = heldDays.get(currentDateStr) || [];
+            positionsForThisDay.forEach(position => {
+                let assignedMemberName = null;
+                let isHeld = false;
+
+                const heldAssignment = todaysHeld.find(h => h.position_name === position.name);
+
+                if (heldAssignment) {
+                    assignedMemberName = heldAssignment.member_name;
+                    isHeld = true;
+                } else {
+                    let attempts = 0;
+                    while (assignedMemberName === null && attempts < memberCount) {
+                        const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
+                        const potentialMemberName = membersForAssignment[potentialMemberIndex];
+                        if (!isMemberUnavailable(potentialMemberName, currentDateStr) && isMemberQualified(potentialMemberName, position.id)) {
+                            assignedMemberName = potentialMemberName;
+                            assignmentCounter = (assignmentCounter + attempts + 1);
+                        } else {
+                            attempts++;
+                        }
+                    }
+                    if (assignedMemberName === null && attempts === memberCount) {
+                        assignmentCounter++; // Advance counter even if no one was found
+                    }
+                }
+
+                if (assignedMemberName) {
+                    dailyAssignments.push({
+                        positionName: position.name,
+                        memberName: assignedMemberName,
+                        isHeld: isHeld,
+                        eventTime: dailyEventTime
+                    });
+                    // *** INCREMENT COUNTS HERE (ONCE) ***
+                    memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
+                    positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
+                } else {
+                     // Store skipped slots if needed for other logic, or just ignore
+                     // For this refactor, we mainly care about actual assignments
+                }
+            });
+            if (memberCount > 0) assignmentCounter %= memberCount;
+            else assignmentCounter = 0;
+        }
+
+        if (dailyAssignments.length > 0) {
+            calculatedMonthlyAssignments.set(currentDateStr, dailyAssignments);
+        }
+    }
+    // --- Pre-calculate Assignments and Counts --- END ---
+
+    // --- Render Calendar Grid --- START ---
+    let date = 1;
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
         for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
@@ -788,16 +894,19 @@ function renderCalendar(year, month) {
             dateNumberDiv.className = 'date-number';
 
             if (week === 0 && dayOfWeek < startDayOfWeek) {
+                // Other month - before
                 cell.classList.add('other-month');
                 const prevMonthLastDay = new Date(year, month, 0).getDate();
                 dateNumberDiv.textContent = prevMonthLastDay - startDayOfWeek + dayOfWeek + 1;
                 cell.appendChild(dateNumberDiv);
             } else if (date > daysInMonth) {
+                // Other month - after
                  cell.classList.add('other-month');
                  dateNumberDiv.textContent = date - daysInMonth;
                  cell.appendChild(dateNumberDiv);
                  date++;
             } else {
+                // Current month day
                 const currentCellDate = new Date(Date.UTC(year, month, date));
                 const currentCellDateStr = formatDateYYYYMMDD(currentCellDate);
                 cell.dataset.date = currentCellDateStr;
@@ -805,29 +914,23 @@ function renderCalendar(year, month) {
                 const cellDateOnly = new Date(currentCellDate.getUTCFullYear(), currentCellDate.getUTCMonth(), currentCellDate.getUTCDate());
                 cellDateOnly.setHours(0,0,0,0);
 
-                if (currentCellDateStr === todayStr) {
-                    cell.classList.add('today');
-                } else if (cellDateOnly < today) {
-                    cell.classList.add('past-day');
-                }
+                if (currentCellDateStr === todayStr) cell.classList.add('today');
+                else if (cellDateOnly < today) cell.classList.add('past-day');
+                if (dayOfWeek === 0 || dayOfWeek === 6) cell.classList.add('weekend');
 
+                // Add Hold container (logic unchanged)
                 const holdContainer = document.createElement('div');
                 holdContainer.className = 'hold-container';
-                
+                // ... (hold checkbox, label, small randomize button creation/event listener) ...
                 const holdCheckbox = document.createElement('input');
                 holdCheckbox.type = 'checkbox';
                 holdCheckbox.className = 'hold-checkbox';
                 holdCheckbox.id = `hold-${currentCellDateStr}`;
                 holdCheckbox.addEventListener('change', async (e) => {
                     const assignmentsToHold = [];
-                    cell.querySelectorAll('.assigned-position').forEach(div => {
-                        const strongTag = div.querySelector('strong');
-                        if (!strongTag) return;
-                        const posName = strongTag.textContent.replace(':', '').trim();
-                        const memName = div.textContent.split(':')[1]?.trim();
-                        if (posName && memName) {
-                            assignmentsToHold.push({ date: currentCellDateStr, position_name: posName, member_name: memName });
-                        }
+                    const currentAssignments = calculatedMonthlyAssignments.get(currentCellDateStr) || [];
+                    currentAssignments.forEach(a => {
+                         assignmentsToHold.push({ date: currentCellDateStr, position_name: a.positionName, member_name: a.memberName });
                     });
 
                     if (e.target.checked) {
@@ -838,29 +941,26 @@ function renderCalendar(year, month) {
                                 body: JSON.stringify({ assignments: assignmentsToHold })
                             });
                             if (response.ok) {
-                                heldDays.set(currentCellDateStr, assignmentsToHold);
-                                assignmentsToHold.forEach(a => {
-                                    const div = Array.from(cell.querySelectorAll('.assigned-position')).find(d =>
-                                        d.querySelector('strong')?.textContent.includes(a.position_name)
-                                    );
-                                    div?.classList.add('held');
-                                });
+                                heldDays.set(currentCellDateStr, assignmentsToHold); // Update local state
+                                // Visually update divs (add .held class)
+                                cell.querySelectorAll('.assigned-position').forEach(div => div.classList.add('held'));
                             } else { throw new Error('Failed to save'); }
                         } catch (error) {
                             console.error('Error saving holds:', error);
-                            e.target.checked = false;
+                            e.target.checked = false; // Revert checkbox
                             alert('Failed to save holds for this day.');
                         }
                     } else {
                         try {
                             const response = await fetch(`/api/held-assignments/${currentCellDateStr}`, { method: 'DELETE' });
                             if (response.ok) {
-                                heldDays.delete(currentCellDateStr);
+                                heldDays.delete(currentCellDateStr); // Update local state
+                                // Visually update divs (remove .held class)
                                 cell.querySelectorAll('.assigned-position.held').forEach(div => div.classList.remove('held'));
                             } else { throw new Error('Failed to delete'); }
                         } catch (error) {
                             console.error('Error clearing holds:', error);
-                            e.target.checked = true;
+                            e.target.checked = true; // Revert checkbox
                             alert('Failed to clear holds for this day.');
                         }
                     }
@@ -869,209 +969,75 @@ function renderCalendar(year, month) {
                 holdLabel.htmlFor = `hold-${currentCellDateStr}`;
                 holdLabel.textContent = 'Hold Day';
                 holdLabel.className = 'hold-label';
-
                 const smallRandomizeBtn = document.createElement('button');
                 smallRandomizeBtn.className = 'small-randomize-btn';
                 smallRandomizeBtn.title = 'Randomize this day (if not held)';
                 smallRandomizeBtn.textContent = '🎲';
-                smallRandomizeBtn.onclick = (e) => {
-                    e.preventDefault();
-                    
-                    if (membersForAssignment.length > 0) {
-                        let shuffledMemberNames = [...membersForAssignment];
-                        shuffleArray(shuffledMemberNames);
-                        let currentAssignmentCounter = 0;
-                        
-                        const targetCell = e.target.closest('td');
-                        if (!targetCell || targetCell.querySelector('.hold-checkbox')?.checked) {
-                            return;
-                        }
-                        const targetDateStr = targetCell.dataset.date;
-                        if (!targetDateStr) return;
-
-                        const assignmentDivs = targetCell.querySelectorAll('.assigned-position, .assignment-skipped');
-
-                        assignmentDivs.forEach(div => {
-                            const strongTag = div.querySelector('strong');
-                            if (!strongTag) return;
-                            const positionName = strongTag.textContent.replace(':', '').trim();
-                            const positionInfo = positions.find(p => p.name === positionName);
-                            if (!positionInfo) return;
-
-                            let assigned = false;
-                            let attempts = 0;
-                            const maxAttempts = shuffledMemberNames.length;
-
-                            while (!assigned && attempts < maxAttempts) {
-                                const memberIndex = (currentAssignmentCounter + attempts) % maxAttempts;
-                                const memberName = shuffledMemberNames[memberIndex];
-                                
-                                if (!isMemberUnavailable(memberName, targetDateStr) &&
-                                    isMemberQualified(memberName, positionInfo.id))
-                                {
-                                    div.innerHTML = `<strong>${positionInfo.name}:</strong> ${memberName}`;
-                                    assigned = true;
-                                    currentAssignmentCounter = (currentAssignmentCounter + attempts + 1) % maxAttempts;
-                                }
-                                attempts++;
-                            }
-
-                            if (!assigned) {
-                                div.innerHTML = `<strong>${positionInfo.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
-                                currentAssignmentCounter = (currentAssignmentCounter + 1) % maxAttempts;
-                            }
-                        });
-                    } else {
-                        alert("Add team members first.");
+                smallRandomizeBtn.onclick = (e) => { 
+                    const targetCell = e.target.closest('td');
+                    if (!targetCell || targetCell.querySelector('.hold-checkbox')?.checked) {
+                        console.log('Cannot randomize a held day.');
+                        return;
                     }
+                    console.log(`Randomizing day (triggering full calendar render): ${targetCell.dataset.date}`);
+                    // Trigger a full re-render to re-calculate all assignments for the month
+                    // This is simpler than trying to recalculate/update just one day in the pre-calculated map.
+                    renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); 
                 };
-
                 holdContainer.appendChild(holdCheckbox);
                 holdContainer.appendChild(holdLabel);
-                holdContainer.appendChild(smallRandomizeBtn);
+                holdContainer.appendChild(smallRandomizeBtn); // <<< UNCOMMENTED THIS LINE
                 cell.appendChild(holdContainer);
 
+                // Add Date Number
                 dateNumberDiv.textContent = date;
                 cell.appendChild(dateNumberDiv);
 
-                if (dayOfWeek === 0 || dayOfWeek === 6) { cell.classList.add('weekend'); }
+                // --- Render assignments from pre-calculated data --- 
+                const todaysAssignments = calculatedMonthlyAssignments.get(currentCellDateStr) || [];
 
-                let positionsForThisDay = [];
-                const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
-
-                positions.forEach(position => {
-                    let shouldAdd = false;
-                    if (position.assignment_type === 'regular') {
-                        shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek) || isOverride;
-                    } else if (position.assignment_type === 'specific_days') {
-                        const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
-                        shouldAdd = allowed.includes(dayOfWeek.toString());
-                    }
-                    if (shouldAdd) {
-                        positionsForThisDay.push(position);
-                    }
-                });
-
-                const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
-                todaysSpecialAssignments.forEach(sa => {
-                    const positionInfo = positions.find(p => p.id === sa.position_id);
-                    if (positionInfo) {
-                        positionsForThisDay.push(positionInfo);
-                    }
-                });
-
-                // <<< MODIFIED: Filter out REMOVED assignments for this date >>>
-                const todaysRemovedAssignments = removedAssignments.filter(ra => ra.date === currentCellDateStr);
-                positionsForThisDay = positionsForThisDay.filter(p => {
-                    const isRemoved = todaysRemovedAssignments.some(ra => ra.position_id === p.id);
-                    if (isRemoved) {
-                        console.log(`Slot removed for ${currentCellDateStr}: ${p.name}`);
-                    }
-                    return !isRemoved;
-                });
-                // <<< END MODIFIED >>>
-
-                positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
-
-                let eventTime = null;
-                if (positionsForThisDay.length > 0) {
-                    const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
-                    if (overrideInfo && overrideInfo.time) {
-                        eventTime = overrideInfo.time;
-                    } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(dayOfWeek)) {
-                        const hasRegularAssignment = positionsForThisDay.some(p => {
-                            const positionDetails = positions.find(pos => pos.id === p.id);
-                            return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(dayOfWeek);
-                        });
-                        if(hasRegularAssignment) {
-                             eventTime = REGULAR_TIMES[dayOfWeek];
-                        }
-                    }
-
-                    if (eventTime) {
-                        const timeDiv = document.createElement('div');
-                        timeDiv.className = 'event-time';
-                        timeDiv.textContent = eventTime;
-                        cell.insertBefore(timeDiv, cell.querySelector('.assigned-position, .assignment-skipped'));
-                    }
+                // Add Event Time Div (only once if assignments exist)
+                if (todaysAssignments.length > 0 && todaysAssignments[0].eventTime) {
+                     const timeDiv = document.createElement('div');
+                     timeDiv.className = 'event-time';
+                     timeDiv.textContent = todaysAssignments[0].eventTime;
+                     cell.appendChild(timeDiv); // Append time before assignments
                 }
 
-                if (canAssign && positionsForThisDay.length > 0) {
-                    cell.classList.add('assignment-day');
-                    const todaysHeldAssignments = heldDays.get(currentCellDateStr) || [];
+                todaysAssignments.forEach(assignment => {
+                    const assignmentDiv = document.createElement('div');
+                    assignmentDiv.classList.add('assigned-position');
+                    if (assignment.isHeld) {
+                        assignmentDiv.classList.add('held');
+                    }
+                    assignmentDiv.innerHTML = `<strong>${assignment.positionName}:</strong> ${assignment.memberName}`;
 
-                    positionsForThisDay.forEach(position => {
-                        const assignmentDiv = document.createElement('div');
-                        let assignedMemberName = null;
+                    // Add click handler for manual assignment (only if not past day)
+                    if (!cell.classList.contains('past-day')) {
+                        assignmentDiv.addEventListener('click', handleAssignmentClick);
+                        assignmentDiv.style.cursor = 'pointer';
+                        assignmentDiv.title = 'Click to manually assign';
+                    }
+                    cell.appendChild(assignmentDiv);
+                });
 
-                        const heldAssignment = todaysHeldAssignments.find(h => h.position_name === position.name);
-
-                        if (heldAssignment) {
-                            assignedMemberName = heldAssignment.member_name;
-                            assignmentDiv.classList.add('assigned-position', 'held');
-                            assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
-                            // <<< ADDED: Increment count for stats (including held) >>>
-                            memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
-                            // <<< ADDED: Increment position count >>>
-                            positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
-                        } else {
-                            let attempts = 0;
-                            while (assignedMemberName === null && attempts < memberCount) {
-                                const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
-                                const potentialMemberName = membersForAssignment[potentialMemberIndex];
-
-                                if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
-                                    isMemberQualified(potentialMemberName, position.id))
-                                {
-                                    assignedMemberName = potentialMemberName;
-                                    assignmentCounter = (assignmentCounter + attempts + 1);
-                                } else {
-                                    attempts++;
-                                }
-                            }
-
-                            if (assignedMemberName) {
-                                assignmentDiv.classList.add('assigned-position');
-                                assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
-                                // <<< ADDED: Increment count for stats >>>
-                                memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
-                                // <<< ADDED: Increment position count >>>
-                                positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
-                            } else {
-                                assignmentDiv.classList.add('assignment-skipped');
-                                assignmentDiv.innerHTML = `<strong>${position.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
-                                if (attempts === memberCount) {
-                                    assignmentCounter++;
-                                }
-                            }
-                        }
-
-                        if (!cell.classList.contains('past-day')) {
-                            assignmentDiv.addEventListener('click', handleAssignmentClick);
-                            assignmentDiv.style.cursor = 'pointer';
-                            assignmentDiv.title = 'Click to manually assign';
-                        }
-
-                        cell.appendChild(assignmentDiv);
-                    });
-
-                    if (memberCount > 0) { assignmentCounter %= memberCount; }
-                    else { assignmentCounter = 0; }
-
-                }
+                // --- Handle skipped slots (if needed) --- 
+                // We might need to recalculate which positions *should* be here vs which *are*
+                // and display skipped text for those missing. This adds complexity back.
+                // Simpler: Just display assigned slots from pre-calculation.
 
                 date++;
             }
             row.appendChild(cell);
         }
         calendarBody.appendChild(row);
-        if (date > daysInMonth && week > 0) break;
+        if (date > daysInMonth && week > 0) break; // Exit loop early if month ends
     }
+     // --- Render Calendar Grid --- END ---
 
-    // --- Mobile View Rendering ---
-    let mobileAssignmentCounter = 0;
-    for (let d = 0; d < daysInMonth; d++) {
-        const currentMobileDate = new Date(Date.UTC(year, month, d + 1));
+    // --- Mobile View Rendering (Read from calculated data) --- START ---
+    for (let d = 1; d <= daysInMonth; d++) {
+        const currentMobileDate = new Date(Date.UTC(year, month, d));
         const currentCellDateStr = formatDateYYYYMMDD(currentMobileDate);
         const currentDayOfWeek = currentMobileDate.getUTCDay();
         const dayItem = document.createElement('li');
@@ -1081,170 +1047,72 @@ function renderCalendar(year, month) {
         const cellDateOnly = new Date(currentMobileDate.getUTCFullYear(), currentMobileDate.getUTCMonth(), currentMobileDate.getUTCDate());
         cellDateOnly.setHours(0,0,0,0);
 
-        if (currentCellDateStr === todayStr) {
-            dayItem.classList.add('today');
-        } else if (cellDateOnly < today) {
-            dayItem.classList.add('past-day');
-        }
-
-        if (currentDayOfWeek === 0 || currentDayOfWeek === 6) {
-            dayItem.classList.add('weekend');
-        }
+        if (currentCellDateStr === todayStr) dayItem.classList.add('today');
+        else if (cellDateOnly < today) dayItem.classList.add('past-day');
+        if (currentDayOfWeek === 0 || currentDayOfWeek === 6) dayItem.classList.add('weekend');
 
         const dayHeader = document.createElement('div');
         dayHeader.className = 'mobile-day-header';
-
         const dateDisplay = document.createElement('span');
         dateDisplay.className = 'mobile-date';
-        if (typeof MONTH_NAMES_PT !== 'undefined') {
-             dateDisplay.textContent = `${DAY_NAMES_PT[currentDayOfWeek]}, ${d + 1}`;
-        } else {
-             dateDisplay.textContent = `${currentMobileDate.toLocaleDateString('default', { weekday: 'short' })}, ${d + 1}`;
-        }
+        dateDisplay.textContent = `${currentMobileDate.toLocaleDateString('default', { weekday: 'short' })}, ${d}`;
         dayHeader.appendChild(dateDisplay);
+
+        const todaysAssignments = calculatedMonthlyAssignments.get(currentCellDateStr) || [];
+
+        // Add Event Time
+        if (todaysAssignments.length > 0 && todaysAssignments[0].eventTime) {
+            const timeDiv = document.createElement('div');
+            timeDiv.className = 'event-time';
+            timeDiv.textContent = todaysAssignments[0].eventTime;
+            dayHeader.appendChild(timeDiv);
+        }
 
         const dayContent = document.createElement('div');
         dayContent.className = 'mobile-day-content';
 
-        // --- Determine positions for this mobile day --- START ---
-        let positionsForThisMobileDay = [];
-        const isOverrideMobile = overrideDays.some(o => o.date === currentCellDateStr);
-        positions.forEach(position => {
-            let shouldAdd = false;
-            if (position.assignment_type === 'regular') {
-                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideMobile;
-            } else if (position.assignment_type === 'specific_days') {
-                const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
-                shouldAdd = allowed.includes(currentDayOfWeek.toString());
-            }
-            if (shouldAdd) {
-                positionsForThisMobileDay.push(position);
-            }
-        });
-        const todaysSpecialMobile = specialAssignments.filter(sa => sa.date === currentCellDateStr);
-        todaysSpecialMobile.forEach(sa => {
-            const positionInfo = positions.find(p => p.id === sa.position_id);
-            if (positionInfo && !positionsForThisMobileDay.some(p => p.id === positionInfo.id)) {
-                positionsForThisMobileDay.push(positionInfo);
-            }
-        });
-
-        // <<< MODIFIED: Filter out REMOVED assignments for this date (Mobile) >>>
-        const todaysRemovedMobile = removedAssignments.filter(ra => ra.date === currentCellDateStr);
-        positionsForThisMobileDay = positionsForThisMobileDay.filter(p => {
-            return !todaysRemovedMobile.some(ra => ra.position_id === p.id);
-        });
-        // <<< END MODIFIED >>>
-
-        positionsForThisMobileDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
-        // --- Determine positions for this mobile day --- END ---
-
-        let eventTime = null;
-        if (positionsForThisMobileDay.length > 0) {
-            const overrideInfo = overrideDays.find(o => o.date === currentCellDateStr);
-            if (overrideInfo && overrideInfo.time) {
-                eventTime = overrideInfo.time;
-            } else if (!overrideInfo && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
-                 const hasRegularAssignment = positionsForThisMobileDay.some(p => {
-                    const positionDetails = positions.find(pos => pos.id === p.id);
-                    return positionDetails?.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
-                });
-                if(hasRegularAssignment) {
-                     eventTime = REGULAR_TIMES[currentDayOfWeek];
-                }
-            }
-            if (eventTime) {
-                const timeDiv = document.createElement('div');
-                timeDiv.className = 'event-time';
-                timeDiv.textContent = eventTime;
-                dayHeader.appendChild(timeDiv);
-            }
-        }
-
-        if (canAssign && positionsForThisMobileDay.length > 0) {
+        if (todaysAssignments.length > 0) {
              dayItem.classList.add('assignment-day');
-             const todaysHeldAssignmentsMobile = heldDays.get(currentCellDateStr) || [];
-
-            positionsForThisMobileDay.forEach(position => {
+             todaysAssignments.forEach(assignment => {
                 const assignmentDiv = document.createElement('div');
-                let assignedMemberName = null;
-
-                const heldAssignment = todaysHeldAssignmentsMobile.find(h => h.position_name === position.name);
-
-                if (heldAssignment) {
-                    assignedMemberName = heldAssignment.member_name;
-                    assignmentDiv.className = 'assigned-position held';
-                    assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
-                    // <<< ADDED: Increment count for stats (including held) >>>
-                    memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
-                    // <<< ADDED: Increment position count >>>
-                    positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
-                } else {
-                    let attempts = 0;
-                    while (assignedMemberName === null && attempts < memberCount) {
-                        const potentialMemberIndex = (mobileAssignmentCounter + attempts) % memberCount;
-                        const potentialMemberName = membersForAssignment[potentialMemberIndex];
-                        if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
-                            isMemberQualified(potentialMemberName, position.id))
-                        {
-                            assignedMemberName = potentialMemberName;
-                            mobileAssignmentCounter = (mobileAssignmentCounter + attempts + 1);
-                        } else {
-                            attempts++;
-                        }
-                    }
-                    if (assignedMemberName) {
-                        assignmentDiv.className = 'assigned-position';
-                        assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
-                        // <<< ADDED: Increment count for stats >>>
-                        memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
-                        // <<< ADDED: Increment position count >>>
-                        positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
-                    } else {
-                        assignmentDiv.className = 'assignment-skipped';
-                        assignmentDiv.innerHTML = `<strong>${position.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
-                        if (attempts === memberCount) mobileAssignmentCounter++;
-                    }
+                assignmentDiv.classList.add('assigned-position');
+                if (assignment.isHeld) {
+                    assignmentDiv.classList.add('held');
                 }
+                assignmentDiv.innerHTML = `<strong>${assignment.positionName}:</strong> ${assignment.memberName}`;
 
                 if (!dayItem.classList.contains('past-day')) {
                     assignmentDiv.addEventListener('click', handleAssignmentClick);
                     assignmentDiv.style.cursor = 'pointer';
                     assignmentDiv.title = 'Click to manually assign';
                 }
-
                 dayContent.appendChild(assignmentDiv);
             });
-
-            if (memberCount > 0) { mobileAssignmentCounter %= memberCount; }
-             else { mobileAssignmentCounter = 0; }
-
-        }
+        } // else: No assignments for this day, content remains empty
 
         dayItem.appendChild(dayHeader);
         dayItem.appendChild(dayContent);
         mobileView.appendChild(dayItem);
     }
+     // --- Mobile View Rendering --- END ---
 
-    applyHeldVisuals();
+    applyHeldVisuals(); // Should still work if it reads classes
 
-    // <<< ADDED: Render statistics after calendar is done >>>
+    // --- Render Statistics (based on counts from pre-calc loop) ---
     renderStatistics(memberAssignmentCounts);
-    renderPositionStatistics(positionAssignmentCounts); // <<< ADDED
+    renderPositionStatistics(positionAssignmentCounts);
 
-    // --- Calculate Days Not Scheduled (After Calendar Render) --- START ---
+    // --- Calculate Days Not Scheduled (using pre-calculated data) --- START ---
     console.log("[Days Not Scheduled] Starting calculation...");
     memberDaysNotScheduledCounts.clear(); // Clear previous counts
-
-    // Initialize counts for all members
-    teamMembers.forEach(member => memberDaysNotScheduledCounts.set(member.name, 0));
+    teamMembers.forEach(member => memberDaysNotScheduledCounts.set(member.name, 0)); // Initialize
 
     for (let d = 1; d <= daysInMonth; d++) {
         const currentIterationDate = new Date(Date.UTC(year, month, d));
         const currentCellDateStr = formatDateYYYYMMDD(currentIterationDate);
         const currentDayOfWeek = currentIterationDate.getUTCDay();
 
-        // 1. Determine positions active on this day (same logic as calendar render)
+        // 1. Determine positions active (same logic as pre-calc)
         let positionsScheduledOnThisDay = [];
         const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
         positions.forEach(position => {
@@ -1267,64 +1135,27 @@ function renderCalendar(year, month) {
             }
         });
         const todaysRemovedAssignments = removedAssignments.filter(ra => ra.date === currentCellDateStr);
-        positionsScheduledOnThisDay = positionsScheduledOnThisDay.filter(p => !
-todaysRemovedAssignments.some(ra => ra.position_id === p.id));
+        positionsScheduledOnThisDay = positionsScheduledOnThisDay.filter(p => !todaysRemovedAssignments.some(ra => ra.position_id === p.id));
 
-        if (positionsScheduledOnThisDay.length === 0) {
-            // console.log(`[Days Not Scheduled] Skipping ${currentCellDateStr}: No positions scheduled.`);
-            continue; // No potential slots this day
-        }
+        if (positionsScheduledOnThisDay.length === 0) continue;
 
         // 2. Check each member
         teamMembers.forEach(member => {
             const memberName = member.name;
 
-            // 3. Check if member is qualified for *any* active position this day
+            // 3. Check if qualified for any active position
             const isQualifiedForAnySlot = positionsScheduledOnThisDay.some(pos => isMemberQualified(memberName, pos.id));
-            if (!isQualifiedForAnySlot) {
-                // console.log(`[Days Not Scheduled] Skipping ${memberName} on ${currentCellDateStr}: Not qualified for any active slot.`);
-                return; // Member couldn't have been scheduled anyway
-            }
+            if (!isQualifiedForAnySlot) return;
 
-            // 4. Check if member is unavailable
-            if (isMemberUnavailable(memberName, currentCellDateStr)) {
-                // console.log(`[Days Not Scheduled] Skipping ${memberName} on ${currentCellDateStr}: Marked unavailable.`);
-                return; // Member couldn't have been scheduled
-            }
+            // 4. Check if unavailable
+            if (isMemberUnavailable(memberName, currentCellDateStr)) return;
 
-            // 5. Check if member was *actually* assigned (check rendered DOM)
-            let wasAssigned = false;
-            // Check desktop view
-            const desktopCell = calendarBody.querySelector(`td[data-date="${currentCellDateStr}"]`);
-            if (desktopCell) {
-                const assignedDivs = desktopCell.querySelectorAll('.assigned-position');
-                assignedDivs.forEach(div => {
-                    // Check text content for member name after the colon
-                    const text = div.textContent || '';
-                    const parts = text.split(':');
-                    if (parts.length > 1 && parts[1].trim() === memberName) {
-                        wasAssigned = true;
-                    }
-                });
-            }
-            // Check mobile view if desktop didn't confirm assignment
-            if (!wasAssigned && mobileView) {
-                const mobileItem = mobileView.querySelector(`li[data-date="${currentCellDateStr}"]`);
-                if (mobileItem) {
-                    const assignedDivs = mobileItem.querySelectorAll('.assigned-position');
-                     assignedDivs.forEach(div => {
-                        const text = div.textContent || '';
-                        const parts = text.split(':');
-                        if (parts.length > 1 && parts[1].trim() === memberName) {
-                            wasAssigned = true;
-                        }
-                    });
-                }
-            }
+            // 5. Check if member was *actually* assigned using pre-calculated data
+            const assignmentsForDay = calculatedMonthlyAssignments.get(currentCellDateStr) || [];
+            const wasAssigned = assignmentsForDay.some(a => a.memberName === memberName);
 
             // 6. Increment count if qualified, available, but not assigned
             if (!wasAssigned) {
-                // console.log(`[Days Not Scheduled] Counting ${memberName} for ${currentCellDateStr}: Qualified, available, not assigned.`);
                 memberDaysNotScheduledCounts.set(memberName, (memberDaysNotScheduledCounts.get(memberName) || 0) + 1);
             }
         });
@@ -1332,7 +1163,7 @@ todaysRemovedAssignments.some(ra => ra.position_id === p.id));
     console.log("[Days Not Scheduled] Calculation complete:", memberDaysNotScheduledCounts);
     // --- Calculate Days Not Scheduled --- END ---
 
-    renderDaysNotScheduledStats(memberDaysNotScheduledCounts); // <<< ADDED: Call the render function
+    renderDaysNotScheduledStats(memberDaysNotScheduledCounts);
 }
 
 function applyHeldVisuals() {
@@ -1739,19 +1570,19 @@ randomizeBtn.addEventListener('click', () => {
                                 const memberIndex = (assignmentCounter + attempts) % maxAttempts;
                                 const memberName = shuffledMembers[memberIndex];
                                 
-                                if (!isMemberUnavailable(memberName, currentDate) && 
+                                if (!isMemberUnavailable(memberName, currentDate) &&
                                     isMemberQualified(memberName, positionInfo.id))
                                 {
                                     div.innerHTML = `<strong>${positionInfo.name}:</strong> ${memberName}`;
                                     assigned = true;
-                                    assignmentCounter = (assignmentCounter + attempts + 1) % shuffledMembers.length;
+                                    currentAssignmentCounter = (currentAssignmentCounter + attempts + 1) % maxAttempts;
                                 }
                                 attempts++;
                             }
-                            
+
                             if (!assigned) {
-                                div.innerHTML = `<strong>${positionInfo.name}:</strong> (No qualified member available)`;
-                                assignmentCounter = (assignmentCounter + 1) % shuffledMembers.length;
+                                div.innerHTML = `<strong>${positionInfo.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
+                                currentAssignmentCounter = (currentAssignmentCounter + 1) % maxAttempts;
                             }
                         });
                     }
