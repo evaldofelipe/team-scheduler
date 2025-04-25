@@ -951,20 +951,79 @@ function renderCalendar(year, month) {
                     assignedMemberName = heldAssignment.member_name;
                     isHeld = true;
                 } else {
-                    let attempts = 0;
-                    while (assignedMemberName === null && attempts < memberCount) {
-                        const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
-                        const potentialMemberName = membersForAssignment[potentialMemberIndex];
-                        if (!isMemberUnavailable(potentialMemberName, currentDateStr) && isMemberQualified(potentialMemberName, position.id)) {
-                            assignedMemberName = potentialMemberName;
-                            assignmentCounter = (assignmentCounter + attempts + 1);
-                        } else {
-                            attempts++;
+                    // <<< MODIFIED: Add check for previous week's assignment >>>
+                    let previousAssignee = null;
+                    const isRegularDefaultDay = position.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek);
+
+                    if (isRegularDefaultDay) {
+                        const prevDate = new Date(currentDateObj);
+                        prevDate.setUTCDate(currentDateObj.getUTCDate() - 7);
+                        const prevDateStr = formatDateYYYYMMDD(prevDate);
+
+                        // Check assignments calculated *so far* for the previous date
+                        const prevDayAssignments = calculatedMonthlyAssignments.get(prevDateStr);
+                        if (prevDayAssignments) {
+                            const prevAssignmentForPos = prevDayAssignments.find(a => a.positionName === position.name);
+                            if (prevAssignmentForPos) {
+                                previousAssignee = prevAssignmentForPos.memberName;
+                            }
                         }
                     }
-                    if (assignedMemberName === null && attempts === memberCount) {
-                        assignmentCounter++; // Advance counter even if no one was found
+
+                    let attempts = 0;
+                    let potentialMemberName = null;
+                    let skippedPreviousAssignee = false; // Flag to ensure we only skip once if needed
+
+                    // Find all available and qualified members *for this specific position* on this day
+                    const candidatesForSlot = membersForAssignment.filter(memberName =>
+                        !isMemberUnavailable(memberName, currentDateStr) && isMemberQualified(memberName, position.id)
+                    );
+
+                    while (assignedMemberName === null && attempts < memberCount) { // Outer loop still needed to cycle globally
+                        const potentialMemberIndex = (assignmentCounter + attempts) % memberCount;
+                        const globallyPotentialMember = membersForAssignment[potentialMemberIndex];
+
+                        // Check if this globally potential member is actually a candidate for *this* slot
+                        if (candidatesForSlot.includes(globallyPotentialMember)) {
+                            potentialMemberName = globallyPotentialMember;
+
+                            // Check for repetition only on regular days and if a previous assignee exists
+                            if (isRegularDefaultDay && previousAssignee && potentialMemberName === previousAssignee && candidatesForSlot.length > 1 && !skippedPreviousAssignee) {
+                                console.log(`[Anti-Repetition] Skipping ${potentialMemberName} for ${position.name} on ${currentDateStr} because they did it last week (${previousAssignee}). Candidates: ${candidatesForSlot.length}`);
+                                potentialMemberName = null; // Don't assign this member, try next attempt
+                                skippedPreviousAssignee = true; // Mark as skipped to avoid infinite loop if only the previous assignee is left in the cycle
+                            } else {
+                                // Assign if: Not a repeat, or is a repeat but only candidate, or not a regular day
+                                assignedMemberName = potentialMemberName;
+                                assignmentCounter = (assignmentCounter + attempts + 1); // Advance counter based on successful find
+                            }
+                        } else {
+                            potentialMemberName = null; // This member isn't qualified/available for this slot
+                        }
+
+                        attempts++; // Move to the next potential member in the global rotation
+
+                        // If we've tried everyone in the global list for this slot, break to avoid infinite loops
+                        if (attempts >= memberCount && assignedMemberName === null) {
+                            console.warn(`Could not find suitable assignment for ${position.name} on ${currentDateStr} after checking all members.`);
+                            // If we skipped the previous assignee and ended up here, assign them anyway if they are the only candidate left
+                            if (skippedPreviousAssignee && candidatesForSlot.length === 1 && candidatesForSlot[0] === previousAssignee) {
+                                console.log(`[Anti-Repetition] Assigning ${previousAssignee} anyway as they are the only candidate left.`);
+                                assignedMemberName = previousAssignee;
+                                // Find where the assignmentCounter should be for this member - tricky, maybe just advance by 1?
+                                // Let's stick with advancing based on the loop attempt count for now.
+                                // assignmentCounter = (assignmentCounter + attempts); // Advance counter based on attempt count
+                            } else if (candidatesForSlot.length === 1 && assignedMemberName === null) {
+                                // If only one candidate overall and they weren't picked (maybe due to counter starting elsewhere), assign them
+                                console.log(`Assigning the only candidate ${candidatesForSlot[0]} for ${position.name} on ${currentDateStr}`);
+                                assignedMemberName = candidatesForSlot[0];
+                                // Find the attempt count for this specific member? Or just advance?
+                                // assignmentCounter = (assignmentCounter + attempts); // Advance based on attempt count
+                            }
+                            // If still null here, the slot remains unassigned
+                        }
                     }
+                    // <<< END MODIFICATION >>>
                 }
 
                 if (assignedMemberName) {
@@ -1667,105 +1726,58 @@ async function logout() {
 prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); renderRemovedAssignmentsList(); });
 nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); renderUnavailableList(); renderOverrideDaysList(); renderSpecialAssignmentsList(); renderRemovedAssignmentsList(); });
 
-randomizeBtn.addEventListener('click', () => {
-    if (teamMembers.length > 0) {
-        const currentHeldAssignments = new Map(heldDays);
-        let maxAttempts = 10;
-        let validRandomization = false;
-        
-        while (!validRandomization && maxAttempts > 0) {
-            let shuffledMembers = [...teamMembers.map(m => m.name)];
-            shuffleArray(shuffledMembers);
-            assignmentCounter = 0;
-            
-            const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
-            
-            cells.forEach(cell => {
-                if (!cell.querySelector('.hold-checkbox')?.checked) {
-                    const dateNumber = cell.querySelector('.date-number');
-                    const currentDate = dateNumber?.dataset.date;
-                    
-                    if (currentDate) {
-                        const assignmentDivs = cell.querySelectorAll('.assigned-position');
-                        assignmentDivs.forEach(div => {
-                            const positionName = div.querySelector('strong').textContent.replace(':', '').trim();
-                            const positionInfo = positions.find(p => p.name === positionName);
-                            
-                            if (!positionInfo) return;
-
-                            let assigned = false;
-                            let attempts = 0;
-                            const maxAttempts = shuffledMembers.length;
-
-                            while (!assigned && attempts < maxAttempts) {
-                                const memberIndex = (assignmentCounter + attempts) % maxAttempts;
-                                const memberName = shuffledMembers[memberIndex];
-                                
-                                if (!isMemberUnavailable(memberName, currentDate) &&
-                                    isMemberQualified(memberName, positionInfo.id))
-                                {
-                                    div.innerHTML = `<strong>${positionInfo.name}:</strong> ${memberName}`;
-                                    assigned = true;
-                                    currentAssignmentCounter = (currentAssignmentCounter + attempts + 1) % maxAttempts;
-                                }
-                                attempts++;
-                            }
-
-                            if (!assigned) {
-                                div.innerHTML = `<strong>${positionInfo.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
-                                currentAssignmentCounter = (currentAssignmentCounter + 1) % maxAttempts;
-                            }
-                        });
-                    }
-                }
-            });
-
-            let hasIdenticalConsecutiveWeeks = false;
-            for (let i = 0; i < cells.length - 14; i += 7) {
-                const week1 = getWeekAssignments(cells, i);
-                const week2 = getWeekAssignments(cells, i + 7);
-                
-                if (week1.length > 0 && areWeeksIdentical(week1, week2)) {
-                    hasIdenticalConsecutiveWeeks = true;
-                    break;
-                }
-            }
-
-            validRandomization = !hasIdenticalConsecutiveWeeks;
-            maxAttempts--;
-
-            if (!validRandomization && maxAttempts > 0) {
-                assignmentCounter = 0;
-            }
-        }
-
-        currentHeldAssignments.forEach((assignments, dateStr) => {
-            const cell = document.querySelector(`td .date-number[data-date="${dateStr}"]`)?.parentElement;
-            if (cell) {
-                assignments.forEach(({ position_name, member_name }) => {
-                    const assignmentDivs = cell.querySelectorAll('.assigned-position');
-                    for (const div of assignmentDivs) {
-                        const strongTag = div.querySelector('strong');
-                        if (strongTag && strongTag.textContent.includes(position_name) && div.textContent.includes(member_name)) {
-                            div.classList.add('held');
-                        }
-                    }
-                });
-
-                const checkbox = cell.querySelector('.hold-checkbox');
-                if (checkbox) {
-                    checkbox.checked = heldDays.has(dateStr);
-                }
-            }
-        });
-
-        if (maxAttempts === 0) {
-            console.warn('Could not find a completely unique pattern after maximum attempts');
-        }
-    } else {
-        alert("Add team members first.");
+// <<< MODIFIED: Randomize Button Logic (Day-by-Day) >>>
+randomizeBtn.addEventListener('click', async () => { // Make async for potential future delays
+    if (teamMembers.length === 0) {
+        alert("Add team members first before randomizing.");
+        return;
     }
+
+    if (!confirm("Randomize assignments day-by-day for the current month? This will generate a new schedule for all days that aren't explicitly held. This change is temporary until you hold specific days.")) {
+        return;
+    }
+
+    console.log("Randomizing assignments day-by-day for the entire month...");
+
+    // 1. Store the currently held days
+    const originalHeldDays = new Map(heldDays);
+
+    // 2. Get all cells for the current month
+    const cells = document.querySelectorAll('#calendar-body td:not(.other-month)');
+
+    // 3. Iterate and randomize non-held days visually
+    // Use Promise.all if we add delays later, for now sequential is fine
+    for (const cell of cells) {
+        const dateStr = cell.dataset.date;
+        if (!dateStr) continue; // Skip if cell has no date
+
+        // Check if this day was originally held
+        if (!originalHeldDays.has(dateStr)) {
+            console.log(`Applying single-day randomization to ${dateStr}`);
+            await randomizeSingleDay(dateStr, cell);
+            // Optional: Add a small delay here if you want to see it happen
+            // await delay(10); // Example: 10ms delay
+        }
+    }
+
+    console.log("Visual day-by-day randomization complete. Recalculating calendar for stats...");
+
+    // 4. Re-render the calendar to update underlying data and stats correctly
+    // based on standard logic applied to non-held days.
+    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
+
+    // 5. Restore the original held days map *locally* immediately after re-render
+    heldDays = originalHeldDays;
+
+    // 6. Re-apply the visual held status based on the restored map
+    applyHeldVisuals();
+
+    console.log("Month randomization complete. Held days restored visually.");
+    alert("Assignments randomized day-by-day for the month. Check 'Hold Day' on days you wish to keep.");
+
 });
+// <<< END MODIFICATION >>>
+
 logoutBtn.addEventListener('click', logout);
 
 addMemberBtn.addEventListener('click', addMember);
