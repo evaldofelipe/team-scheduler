@@ -748,6 +748,114 @@ async function updateManualAssignment(dateStr, positionName, selectedMemberName,
     renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
 }
 
+// <<< ADDED: Function to randomize assignments for a single day >>>
+async function randomizeSingleDay(dateStr, cellElement) {
+    console.log(`Randomizing single day: ${dateStr}`);
+
+    // 1. Recalculate positions for the day (logic copied & adapted from renderCalendar pre-calc)
+    const currentDayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
+    const currentDayOfWeek = currentDayDate.getUTCDay();
+    let positionsForThisDay = [];
+    const isOverrideDay = overrideDays.some(o => o.date === dateStr);
+
+    positions.forEach(position => {
+        let shouldAdd = false;
+        if (position.assignment_type === 'regular') {
+            shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay;
+        } else if (position.assignment_type === 'specific_days') {
+            const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
+            shouldAdd = allowed.includes(currentDayOfWeek.toString());
+        }
+        if (shouldAdd) {
+            positionsForThisDay.push(position);
+        }
+    });
+    const todaysSpecial = specialAssignments.filter(sa => sa.date === dateStr);
+    todaysSpecial.forEach(sa => {
+        const positionInfo = positions.find(p => p.id === sa.position_id);
+        if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
+            positionsForThisDay.push(positionInfo);
+        }
+    });
+    const todaysRemoved = removedAssignments.filter(ra => ra.date === dateStr);
+    positionsForThisDay = positionsForThisDay.filter(p => !todaysRemoved.some(ra => ra.position_id === p.id));
+    positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+    if (positionsForThisDay.length === 0) {
+        console.log("No positions scheduled for this day to randomize.");
+        return; // Nothing to do
+    }
+
+    // 2. Get qualified & available members for *any* position today
+    const availableMembersToday = teamMembers.filter(member => {
+        const isUnavailable = isMemberUnavailable(member.name, dateStr);
+        const isQualifiedForAny = positionsForThisDay.some(pos => isMemberQualified(member.name, pos.id));
+        return !isUnavailable && isQualifiedForAny;
+    }).map(m => m.name); // Just get names
+
+    // Prepare message for skipped slots
+    const skippedMessage = availableMembersToday.length === 0 ? "(No one available)" : "(Skipped/Unavailable)";
+
+    if (availableMembersToday.length === 0) {
+        console.log("No qualified and available members for this day's positions.");
+    }
+
+    // 3. Shuffle the available members
+    shuffleArray(availableMembersToday);
+
+    // 4. Assign shuffled members to positions
+    const assignmentsMade = new Map(); // { positionName: memberName | null }
+    const membersAssignedThisDay = new Set(); // Track members assigned today
+    let memberPool = [...availableMembersToday]; // Create a pool to draw from
+
+    positionsForThisDay.forEach(position => {
+        let assigned = false;
+        for (let i = 0; i < memberPool.length; i++) {
+            const potentialMember = memberPool[i];
+            // Check qualification AND if not already assigned today
+            if (isMemberQualified(potentialMember, position.id) && !membersAssignedThisDay.has(potentialMember)) {
+                assignmentsMade.set(position.name, potentialMember);
+                membersAssignedThisDay.add(potentialMember);
+                memberPool.splice(i, 1); // Remove member from pool for this day
+                assigned = true;
+                break; // Move to next position
+            }
+        }
+        if (!assigned) {
+            assignmentsMade.set(position.name, null); // Mark as skipped
+        }
+    });
+
+    // 5. Update UI for the cell
+    // Remove existing assignment divs first
+    cellElement.querySelectorAll('.assigned-position, .assignment-skipped').forEach(div => div.remove());
+
+    // Add new/updated divs
+    assignmentsMade.forEach((memberName, positionName) => {
+        const assignmentDiv = document.createElement('div');
+        if (memberName) {
+            assignmentDiv.className = 'assigned-position'; // Not held, just randomized
+            assignmentDiv.innerHTML = `<strong>${positionName}:</strong> ${memberName}`;
+        } else {
+            assignmentDiv.className = 'assignment-skipped'; // Use a specific class
+            assignmentDiv.innerHTML = `<strong>${positionName}:</strong> <span class="skipped-text">${skippedMessage}</span>`;
+        }
+        // Add click handler for manual assignment (copied from renderCalendar)
+        // Applies to both assigned and skipped slots after randomization
+        if (!cellElement.classList.contains('past-day')) {
+            assignmentDiv.addEventListener('click', handleAssignmentClick);
+            assignmentDiv.style.cursor = 'pointer';
+            assignmentDiv.title = 'Click to manually assign';
+        }
+        cellElement.appendChild(assignmentDiv);
+    });
+
+    console.log(`Single day ${dateStr} randomized. Assignments:`, assignmentsMade);
+    // NOTE: This randomization is purely visual/temporary. It is NOT saved/held automatically.
+    // The 'Hold Day' checkbox state remains unchanged. If the user wants to keep this, they must check 'Hold Day'.
+}
+// <<< END ADDED >>>
+
 function renderCalendar(year, month) {
     calendarBody.innerHTML = '';
     let mobileView = document.getElementById('calendar-body-mobile');
@@ -973,17 +1081,40 @@ function renderCalendar(year, month) {
                 smallRandomizeBtn.className = 'small-randomize-btn';
                 smallRandomizeBtn.title = 'Randomize this day (if not held)';
                 smallRandomizeBtn.textContent = '🎲';
-                smallRandomizeBtn.onclick = (e) => { 
+                // <<< MODIFIED: onClick handler for small randomize button >>>
+                smallRandomizeBtn.onclick = (e) => {
                     const targetCell = e.target.closest('td');
-                    if (!targetCell || targetCell.querySelector('.hold-checkbox')?.checked) {
+                    if (!targetCell) return; // Should not happen
+
+                    const holdCheckbox = targetCell.querySelector('.hold-checkbox');
+                    if (holdCheckbox?.checked) {
                         console.log('Cannot randomize a held day.');
+                        // Provide visual feedback that it's held
+                        const originalTitle = e.target.title;
+                        e.target.title = 'Day is held!';
+                        e.target.style.opacity = '0.5';
+                        setTimeout(() => {
+                            // Check if the button still exists before resetting
+                            if (e.target) {
+                                e.target.title = originalTitle;
+                                e.target.style.opacity = '1';
+                            }
+                        }, 1500);
                         return;
                     }
-                    console.log(`Randomizing day (triggering full calendar render): ${targetCell.dataset.date}`);
-                    // Trigger a full re-render to re-calculate all assignments for the month
-                    // This is simpler than trying to recalculate/update just one day in the pre-calculated map.
-                    renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); 
+
+                    const dateStr = targetCell.dataset.date;
+                    if (!dateStr) {
+                        console.error("Could not get date from cell for randomization.");
+                        return;
+                    }
+
+                    console.log(`Randomizing single day via button click: ${dateStr}`);
+                    // Call the new function instead of re-rendering the whole calendar
+                    randomizeSingleDay(dateStr, targetCell);
+                    // Do NOT call renderCalendar here.
                 };
+                // <<< END MODIFICATION >>>
                 holdContainer.appendChild(holdCheckbox);
                 holdContainer.appendChild(holdLabel);
                 holdContainer.appendChild(smallRandomizeBtn); // <<< UNCOMMENTED THIS LINE
