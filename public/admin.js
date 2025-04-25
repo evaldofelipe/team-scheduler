@@ -472,11 +472,14 @@ function renderUnavailableList() {
     unavailableList.innerHTML = '';
     memberUnavailabilityCounts.clear(); // <<< ADDED: Clear unavailability counts
 
-    const currentYear = currentDate.getFullYear();
-    const currentMonth = currentDate.getMonth();
+    // <<< MODIFIED: Get UTC year/month from the current viewing date for consistent comparison >>>
+    const currentViewYear = currentDate.getUTCFullYear();
+    const currentViewMonth = currentDate.getUTCMonth();
+
     const filteredEntries = unavailableEntries.filter(entry => {
         const entryDate = new Date(entry.date + 'T00:00:00Z');
-        return entryDate.getUTCFullYear() === currentYear && entryDate.getUTCMonth() === currentMonth;
+        // Compare UTC date from entry with UTC date of the current view
+        return entryDate.getUTCFullYear() === currentViewYear && entryDate.getUTCMonth() === currentViewMonth;
     });
     filteredEntries.sort((a, b) => a.date.localeCompare(b.date) || a.member.localeCompare(b.member));
     if (filteredEntries.length === 0) {
