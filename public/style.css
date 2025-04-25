@@ -1432,3 +1432,106 @@ body.login-page #theme-toggle {
     margin-right: 5px;
 }
 /* <<< END ADDED: Next Event Display Styling >>> */
+
+/* <<< ADDED: Statistics Section Styling >>> */
+#statistics-section {
+    /* Spacing/border already added inline, but can reinforce here */
+    margin-top: 25px;
+    padding-top: 20px;
+    border-top: 2px solid var(--border-color);
+    padding-left: 15px; /* Add some padding to the section */
+    padding-right: 15px;
+}
+
+#statistics-section h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    color: var(--header-color);
+    font-weight: 600;
+    text-align: center; /* Center the main title */
+}
+
+#statistics-section > div {
+    /* Styles for the flex container holding the stats blocks */
+    display: flex;
+    flex-wrap: wrap;
+    gap: 30px 20px; /* More vertical gap */
+    justify-content: space-around; /* Distribute space */
+}
+
+#statistics-section h4 {
+    font-size: 1.1em;
+    margin-bottom: 10px;
+    color: var(--text-primary);
+    border-bottom: 1px solid var(--list-item-border);
+    padding-bottom: 5px;
+}
+
+#memberStatsList,
+#positionStatsList {
+    /* Shared list styles */
+    list-style: none;
+    padding: 0 0 0 10px; /* Indent list items slightly */
+    margin: 0;
+    max-height: 200px;
+    overflow-y: auto;
+    font-size: 0.9em;
+    background-color: var(--list-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 8px;
+}
+
+#memberStatsList li,
+#positionStatsList li {
+    padding: 4px 0;
+    border-bottom: 1px dashed var(--list-item-border);
+}
+
+#memberStatsList li:last-child,
+#positionStatsList li:last-child {
+    border-bottom: none;
+}
+
+/* Chart container styling */
+#statistics-section .chart-container {
+    flex: 1 1 300px; /* Allow charts to grow/shrink, base size */
+    max-width: 400px; /* Limit max chart width */
+    position: relative; /* For the no-data message */
+    min-height: 200px; /* Ensure some height */
+}
+
+#memberStatsChart,
+#positionStatsChart {
+    max-height: 250px; /* Limit chart height if needed */
+}
+
+/* No-data message styling */
+#stats-member-no-data,
+#stats-position-no-data {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--text-secondary);
+    background-color: rgba(var(--bg-secondary-rgb, 255, 255, 255), 0.8); /* Add a subtle background */
+    padding: 10px 15px;
+    border-radius: 4px;
+    font-style: italic;
+    text-align: center;
+}
+
+/* Ensure themed background for no-data message */
+[data-theme="dark"] #stats-member-no-data,
+[data-theme="dark"] #stats-position-no-data {
+    background-color: rgba(var(--bg-secondary-rgb, 45, 45, 45), 0.85);
+}
+/* <<< END ADDED >>>
+
+/* Place theme toggle nicely on login page (since no header) */
+body.login-page #theme-toggle {
+    position: absolute; /* Position relative to body */
+    top: 20px;
+    right: 20px;
+    /* Inherits basic button styles, ensure it looks okay */
+}

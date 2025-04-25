@@ -284,7 +284,8 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
 
     const membersForAssignment = members.map(m => m.name); // Just need names for rotation
     const memberCount = membersForAssignment.length;
-    if (memberCount === 0) return assignments; // No members to assign
+    // Return early if no members OR no positions to avoid unnecessary iteration
+    if (memberCount === 0 || positions.length === 0) return assignments;
 
     let assignmentCounter = 0; // Simple rotation counter for simulation
     const startDate = new Date(startDateStr + 'T00:00:00Z');
@@ -324,7 +325,7 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
     while (currentDate <= endDate) {
         const currentDateStr = formatDateYYYYMMDD(currentDate);
         const currentDayOfWeek = currentDate.getUTCDay(); // 0 = Sun, 6 = Sat
-        const isOverride = overrideMap.has(currentDateStr);
+        const isOverrideDay = overrideMap.has(currentDateStr); // Renamed for clarity
         const todaysHeldMap = heldMap.get(currentDateStr) || new Map();
 
         let positionsForThisDay = [];
@@ -338,10 +339,11 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
                     shouldAdd = true;
                 }
             } else { // 'regular' type
-                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride) {
+                if (DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverrideDay) {
                     shouldAdd = true;
                 }
             }
+            // Ensure position is not already added (e.g., if it meets both regular and specific criteria accidentally)
             if (shouldAdd && !positionsForThisDay.some(p => p.id === position.id)) {
                 positionsForThisDay.push(position);
             }
@@ -351,6 +353,7 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
         specialAssignments.forEach(sa => {
             if (sa.date === currentDateStr) {
                 const positionInfo = positions.find(p => p.id === sa.position_id);
+                // Add only if it exists and isn't already in the list
                 if (positionInfo && !positionsForThisDay.some(p => p.id === positionInfo.id)) {
                     positionsForThisDay.push(positionInfo);
                 }
@@ -362,6 +365,25 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
 
         // Sort positions
         positionsForThisDay.sort((a, b) => (a.display_order || 0) - (b.display_order || 0) || a.name.localeCompare(b.name));
+
+        // <<< MODIFIED: Calculate event time ONCE per day >>>
+        let dailyEventTime = null;
+        if (positionsForThisDay.length > 0) {
+            const overrideTime = overrideMap.get(currentDateStr);
+            if (overrideTime) {
+                dailyEventTime = overrideTime; // Override takes precedence
+            } else {
+                // Check if any position is 'regular' AND assigned on a default day
+                const hasRegularAssignmentOnDefaultDay = positionsForThisDay.some(p =>
+                    p.assignment_type === 'regular' && DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek)
+                );
+                // Only assign regular time if applicable
+                if (hasRegularAssignmentOnDefaultDay && REGULAR_TIMES.hasOwnProperty(currentDayOfWeek)) {
+                     dailyEventTime = REGULAR_TIMES[currentDayOfWeek];
+                }
+            }
+        }
+        // <<< END MODIFIED SECTION >>>
 
         const dailyAssignments = [];
         if (memberCount > 0 && positionsForThisDay.length > 0) {
@@ -397,14 +419,13 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
                 }
 
                 if (assignedMemberName) {
-                    // Determine event time for this specific assignment
-                    // <<< MODIFIED: Pass simulationData.overrideMap to determineEventTime >>>
-                    const eventTime = determineEventTime(currentDateStr, currentDayOfWeek, isOverride, position.assignment_type, simulationData.overrideMap);
-                    dailyAssignments.push({ position, assignedMemberName, isHeld, eventTime });
+                    // <<< MODIFIED: Use pre-calculated dailyEventTime >>>
+                    dailyAssignments.push({ position, assignedMemberName, isHeld, eventTime: dailyEventTime });
                 }
                 // else: assignment skipped, don't add to list
             });
 
+             // Ensure counter wraps around correctly after processing all positions for the day
              if (memberCount > 0) { assignmentCounter %= memberCount; } else { assignmentCounter = 0; }
         }
 
@@ -422,6 +443,7 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
 
 // <<< ADDED: Helper to determine event time >>>
 // <<< MODIFIED: Accept overrideMap as an argument >>>
+// <<< NOTE: This function is now simplified and less used directly by the main simulation loop >>>
 function determineEventTime(dateStr, dayOfWeek, isOverrideDay, positionType, overrideMap) {
     const overrideTime = overrideMap.get(dateStr);
     if (overrideTime) {

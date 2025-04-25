@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin - Team Scheduler</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
 
@@ -190,6 +191,39 @@
             <tbody id="calendar-body"></tbody>
         </table>
         <ul id="calendar-body-mobile" style="display: none;"></ul>
+
+        <!-- <<< ADDED: Statistics Section >>> -->
+        <div id="statistics-section" style="margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--border-color);">
+            <h3>Monthly Assignment Statistics</h3>
+            <div style="display: flex; flex-wrap: wrap; gap: 20px;">
+                <div style="flex: 1; min-width: 200px;">
+                    <h4>Assignments per Member:</h4>
+                    <ul id="memberStatsList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+                        <!-- Stats will be populated by JS -->
+                    </ul>
+                </div>
+                <div style="flex: 1; min-width: 250px; max-width: 350px; position: relative;">
+                    <h4>Assignment Distribution (Member):</h4>
+                    <canvas id="memberStatsChart"></canvas>
+                     <div id="stats-member-no-data" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--text-secondary); display: none;">No assignments this month.</div>
+                </div>
+                <!-- <<< ADDED: Position Statistics >>> -->
+                <div style="flex: 1; min-width: 200px; border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <h4>Assignments per Position:</h4>
+                    <ul id="positionStatsList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+                        <!-- Stats will be populated by JS -->
+                    </ul>
+                </div>
+                 <div style="flex: 1; min-width: 250px; max-width: 350px; position: relative;">
+                    <h4>Assignment Distribution (Position):</h4>
+                    <canvas id="positionStatsChart"></canvas>
+                     <div id="stats-position-no-data" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--text-secondary); display: none;">No assignments this month.</div>
+                </div>
+                <!-- <<< END ADDED >>>
+            </div>
+        </div>
+        <!-- <<< END ADDED >>>
+
     </div> <!-- END #calendar-view -->
 </div> <!-- END #scheduler -->
 

@@ -48,6 +48,14 @@ const removedAssignmentsList = document.getElementById('removed-assignments-list
 // <<< END ADDED >>>
 // <<< ADDED: Upcoming Notifications Selectors >>>
 const upcomingNotificationsList = document.getElementById('upcoming-notifications-list');
+// <<< ADDED: Statistics Elements >>>
+const memberStatsList = document.getElementById('memberStatsList');
+const memberStatsChartCanvas = document.getElementById('memberStatsChart');
+const statsNoDataMessage = document.getElementById('stats-member-no-data'); // <<< CORRECTED ID
+// <<< ADDED: Position Stats Elements >>>
+const positionStatsList = document.getElementById('positionStatsList');
+const positionStatsChartCanvas = document.getElementById('positionStatsChart');
+const statsPositionNoDataMessage = document.getElementById('stats-position-no-data');
 // --- End ADDED ---
 
 // --- State Variables ---
@@ -61,6 +69,10 @@ let removedAssignments = []; // <<< ADDED: State for removed slots
 let assignmentCounter = 0;
 let memberPositions = new Map(); // Store member position assignments
 let heldDays = new Map(); // Still use Map for temporary storage
+let memberAssignmentCounts = new Map(); // <<< ADDED: Store counts for statistics
+let memberStatsChart = null; // <<< ADDED: Store chart instance
+let positionAssignmentCounts = new Map(); // <<< ADDED: Position counts
+let positionStatsChart = null; // <<< ADDED: Position chart instance
 
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
@@ -717,11 +729,16 @@ async function updateManualAssignment(dateStr, positionName, selectedMemberName,
         alert(`Error setting assignment: ${error.message}`);
         // Optionally revert UI or keep the select open on error
     }
+    // <<< ADDED: Re-render calendar to update stats after manual change >>>
+    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
 }
 
 function renderCalendar(year, month) {
     calendarBody.innerHTML = '';
     let mobileView = document.getElementById('calendar-body-mobile');
+
+    memberAssignmentCounts.clear(); // <<< ADDED: Reset counts for the new month
+    positionAssignmentCounts.clear(); // <<< ADDED: Reset position counts
     
     if (!mobileView) {
         mobileView = document.createElement('ul');
@@ -978,6 +995,11 @@ function renderCalendar(year, month) {
                             assignedMemberName = heldAssignment.member_name;
                             assignmentDiv.classList.add('assigned-position', 'held');
                             assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                            // <<< ADDED: Increment count for stats (including held) >>>
+                            console.log(`[Stats Count] Held: Member=${assignedMemberName}, Pos=${position.name}`); // <<< DEBUG LOG
+                            memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
+                            // <<< ADDED: Increment position count >>>
+                            positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
                         } else {
                             let attempts = 0;
                             while (assignedMemberName === null && attempts < memberCount) {
@@ -997,6 +1019,11 @@ function renderCalendar(year, month) {
                             if (assignedMemberName) {
                                 assignmentDiv.classList.add('assigned-position');
                                 assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                                // <<< ADDED: Increment count for stats >>>
+                                console.log(`[Stats Count] Auto: Member=${assignedMemberName}, Pos=${position.name}`); // <<< DEBUG LOG
+                                memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
+                                // <<< ADDED: Increment position count >>>
+                                positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
                             } else {
                                 assignmentDiv.classList.add('assignment-skipped');
                                 assignmentDiv.innerHTML = `<strong>${position.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
@@ -1135,6 +1162,11 @@ function renderCalendar(year, month) {
                     assignedMemberName = heldAssignment.member_name;
                     assignmentDiv.className = 'assigned-position held';
                     assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                    // <<< ADDED: Increment count for stats (including held) >>>
+                    console.log(`[Stats Count Mobile] Held: Member=${assignedMemberName}, Pos=${position.name}`); // <<< DEBUG LOG
+                    memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
+                    // <<< ADDED: Increment position count >>>
+                    positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
                 } else {
                     let attempts = 0;
                     while (assignedMemberName === null && attempts < memberCount) {
@@ -1152,6 +1184,10 @@ function renderCalendar(year, month) {
                     if (assignedMemberName) {
                         assignmentDiv.className = 'assigned-position';
                         assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
+                        // <<< ADDED: Increment count for stats >>>
+                        memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
+                        // <<< ADDED: Increment position count >>>
+                        positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
                     } else {
                         assignmentDiv.className = 'assignment-skipped';
                         assignmentDiv.innerHTML = `<strong>${position.name}:</strong> <span class="skipped-text">(Unavailable/Not Qualified)</span>`;
@@ -1179,6 +1215,10 @@ function renderCalendar(year, month) {
     }
 
     applyHeldVisuals();
+
+    // <<< ADDED: Render statistics after calendar is done >>>
+    renderStatistics(memberAssignmentCounts);
+    renderPositionStatistics(positionAssignmentCounts); // <<< ADDED
 }
 
 function applyHeldVisuals() {
@@ -2145,6 +2185,8 @@ async function removeRemovedAssignment(idToRemove) {
         method: 'DELETE'
     });
     // No need to call renderRemovedAssignmentsList here, apiCall handles refresh
+    // <<< ADDED: Refresh calendar/stats after restoring a slot >>>
+    renderCalendar(currentDate.getFullYear(), currentDate.getMonth());
 }
 // <<< END ADDED >>>
 
@@ -2206,5 +2248,194 @@ async function fetchUpcomingNotifications() {
             }
         }
     );
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Function to render statistics list and chart >>>
+function renderStatistics(countsMap) {
+    if (!memberStatsList || !memberStatsChartCanvas || !statsNoDataMessage) {
+        console.warn('Member Statistics elements not found in the DOM.'); // Clarified warning
+        return;
+    }
+
+    memberStatsList.innerHTML = ''; // Clear previous list
+    statsNoDataMessage.style.display = 'none'; // Hide no-data message initially
+
+    // Destroy previous chart instance if it exists
+    if (memberStatsChart) {
+        memberStatsChart.destroy();
+        memberStatsChart = null;
+    }
+
+    const sortedEntries = Array.from(countsMap.entries()).sort(([, countA], [, countB]) => countB - countA); // Sort by count descending
+    let totalAssignments = 0;
+    sortedEntries.forEach(([name, count]) => {
+        totalAssignments += count;
+        const li = document.createElement('li');
+        li.textContent = `${name}: ${count} assignment(s)`;
+        li.style.padding = '3px 0'; // Add some spacing
+        memberStatsList.appendChild(li);
+    });
+
+    if (totalAssignments === 0) {
+        memberStatsList.innerHTML = '<li>No member assignments found this month.</li>'; // Clarified message
+        statsNoDataMessage.style.display = 'block'; // Show no-data message
+        memberStatsChartCanvas.style.display = 'none'; // Hide canvas
+        return; // Don't render chart if no data
+    }
+
+    memberStatsChartCanvas.style.display = 'block'; // Show canvas
+
+    const labels = sortedEntries.map(([name]) => name);
+    const data = sortedEntries.map(([, count]) => count);
+
+    // Generate colors - simple approach
+    const backgroundColors = labels.map((_, i) => `hsl(${i * (360 / labels.length)}, 70%, 60%)`);
+
+    const chartData = {
+        labels: labels,
+        datasets: [{
+            label: 'Assignments', // Used in tooltip header
+            data: data,
+            backgroundColor: backgroundColors,
+            hoverOffset: 4
+        }]
+    };
+
+    const config = {
+        type: 'pie',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                         boxWidth: 12,
+                         font: {
+                             size: 10 // Smaller font for legend
+                         }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed !== null) {
+                                const percentage = ((context.parsed / totalAssignments) * 100).toFixed(1);
+                                label += `${context.formattedValue} (${percentage}%)`;
+                            }
+                            return label;
+                        }
+                    }
+                },
+                title: {
+                    display: false, // We have a separate H4 title
+                }
+            }
+        }
+    };
+
+    // Create the chart
+    memberStatsChart = new Chart(memberStatsChartCanvas, config);
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Function to render POSITION statistics list and chart >>>
+function renderPositionStatistics(countsMap) {
+    if (!positionStatsList || !positionStatsChartCanvas || !statsPositionNoDataMessage) {
+        console.warn('Position Statistics elements not found in the DOM.');
+        return;
+    }
+
+    positionStatsList.innerHTML = ''; // Clear previous list
+    statsPositionNoDataMessage.style.display = 'none'; // Hide no-data message initially
+
+    // Destroy previous chart instance if it exists
+    if (positionStatsChart) {
+        positionStatsChart.destroy();
+        positionStatsChart = null;
+    }
+
+    // Sort positions by name (alphabetical) for consistency
+    const sortedEntries = Array.from(countsMap.entries()).sort(([nameA], [nameB]) => nameA.localeCompare(nameB));
+    let totalAssignments = 0;
+    sortedEntries.forEach(([name, count]) => {
+        totalAssignments += count;
+        const li = document.createElement('li');
+        li.textContent = `${name}: ${count} assignment(s)`;
+        li.style.padding = '3px 0'; // Add some spacing
+        positionStatsList.appendChild(li);
+    });
+
+    if (totalAssignments === 0) {
+        positionStatsList.innerHTML = '<li>No assignments found for this month.</li>';
+        statsPositionNoDataMessage.style.display = 'block'; // Show no-data message
+        positionStatsChartCanvas.style.display = 'none'; // Hide canvas
+        return; // Don't render chart if no data
+    }
+
+    positionStatsChartCanvas.style.display = 'block'; // Show canvas
+
+    const labels = sortedEntries.map(([name]) => name);
+    const data = sortedEntries.map(([, count]) => count);
+
+    // Generate colors based on position order
+    const backgroundColors = labels.map((_, i) => `hsl(${(i * (360 / labels.length) + 180) % 360}, 60%, 70%)`); // Offset colors from member chart
+
+    const chartData = {
+        labels: labels,
+        datasets: [{
+            label: 'Assignments', // Used in tooltip header
+            data: data,
+            backgroundColor: backgroundColors,
+            hoverOffset: 4
+        }]
+    };
+
+    const config = {
+        type: 'pie',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    labels: {
+                         boxWidth: 12,
+                         font: {
+                             size: 10 // Smaller font for legend
+                         }
+                    }
+                },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed !== null) {
+                                const percentage = ((context.parsed / totalAssignments) * 100).toFixed(1);
+                                label += `${context.formattedValue} (${percentage}%)`;
+                            }
+                            return label;
+                        }
+                    }
+                },
+                title: {
+                    display: false, // We have a separate H4 title
+                }
+            }
+        }
+    };
+
+    // Create the chart
+    positionStatsChart = new Chart(positionStatsChartCanvas, config);
 }
 // <<< END ADDED >>>
