@@ -219,6 +219,24 @@
                     <canvas id="positionStatsChart"></canvas>
                      <div id="stats-position-no-data" style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--text-secondary); display: none;">No assignments this month.</div>
                 </div>
+                <!-- <<< END ADDED: Position Statistics >>> -->
+                <!-- <<< ADDED: Unavailability Statistics >>> -->
+                <div style="flex: 1; min-width: 200px; border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <h4>Days Off (Current Month):</h4>
+                    <ul id="memberUnavailabilityStatsList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+                        <!-- Unavailability stats will be populated by JS -->
+                    </ul>
+                    <div id="stats-unavailability-no-data" style="color: var(--text-secondary); font-style: italic; font-size: 0.9em; display: none; margin-top: 5px;">No unavailability this month.</div>
+                </div>
+                <!-- <<< END ADDED: Unavailability Statistics >>> -->
+                <!-- <<< ADDED: Days Not Scheduled Statistics >>> -->
+                <div style="flex: 1; min-width: 200px; border-left: 1px solid var(--border-color); padding-left: 20px;">
+                    <h4>Days Not Scheduled (When Qualified):</h4>
+                    <ul id="memberDaysNotScheduledStatsList" style="list-style: none; padding: 0; max-height: 200px; overflow-y: auto;">
+                        <!-- Stats will be populated by JS -->
+                    </ul>
+                    <div id="stats-not-scheduled-no-data" style="color: var(--text-secondary); font-style: italic; font-size: 0.9em; display: none; margin-top: 5px;">All qualified members scheduled when possible.</div>
+                </div>
                 <!-- <<< END ADDED >>>
             </div>
         </div>

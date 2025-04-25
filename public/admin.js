@@ -51,12 +51,17 @@ const upcomingNotificationsList = document.getElementById('upcoming-notification
 // <<< ADDED: Statistics Elements >>>
 const memberStatsList = document.getElementById('memberStatsList');
 const memberStatsChartCanvas = document.getElementById('memberStatsChart');
-const statsNoDataMessage = document.getElementById('stats-member-no-data'); // <<< CORRECTED ID
+const statsNoDataMessage = document.getElementById('stats-member-no-data'); // <<< FIX: Changed ID to match HTML
 // <<< ADDED: Position Stats Elements >>>
 const positionStatsList = document.getElementById('positionStatsList');
 const positionStatsChartCanvas = document.getElementById('positionStatsChart');
 const statsPositionNoDataMessage = document.getElementById('stats-position-no-data');
-// --- End ADDED ---
+// <<< ADDED: Unavailability Stats Elements >>>
+const memberUnavailabilityStatsList = document.getElementById('memberUnavailabilityStatsList');
+const statsUnavailabilityNoDataMessage = document.getElementById('stats-unavailability-no-data');
+// <<< ADDED: Days Not Scheduled Stats Elements >>>
+const memberDaysNotScheduledStatsList = document.getElementById('memberDaysNotScheduledStatsList');
+const statsNotScheduledNoDataMessage = document.getElementById('stats-not-scheduled-no-data');
 
 // --- State Variables ---
 let currentDate = new Date();
@@ -73,6 +78,8 @@ let memberAssignmentCounts = new Map(); // <<< ADDED: Store counts for statistic
 let memberStatsChart = null; // <<< ADDED: Store chart instance
 let positionAssignmentCounts = new Map(); // <<< ADDED: Position counts
 let positionStatsChart = null; // <<< ADDED: Position chart instance
+let memberUnavailabilityCounts = new Map(); // <<< ADDED: Unavailability counts
+let memberDaysNotScheduledCounts = new Map(); // <<< ADDED: Days Not Scheduled counts
 
 // --- Configuration ---
 const DEFAULT_ASSIGNMENT_DAYS_OF_WEEK = [0, 3, 6]; // Sun, Wed, Sat
@@ -463,6 +470,8 @@ function populateRemovedAssignmentPositionDropdown() {
 
 function renderUnavailableList() {
     unavailableList.innerHTML = '';
+    memberUnavailabilityCounts.clear(); // <<< ADDED: Clear unavailability counts
+
     const currentYear = currentDate.getFullYear();
     const currentMonth = currentDate.getMonth();
     const filteredEntries = unavailableEntries.filter(entry => {
@@ -485,9 +494,15 @@ function renderUnavailableList() {
             removeBtn.onclick = () => removeUnavailability(entry.id);
             li.appendChild(removeBtn);
             unavailableList.appendChild(li);
+
+            // <<< ADDED: Increment unavailability count for stats >>>
+            memberUnavailabilityCounts.set(entry.member, (memberUnavailabilityCounts.get(entry.member) || 0) + 1);
         });
     }
     if (unavailableList.lastChild) unavailableList.lastChild.style.borderBottom = 'none';
+
+    // <<< ADDED: Render the unavailability statistics >>>
+    renderUnavailabilityStatistics(memberUnavailabilityCounts);
 }
 
 function renderOverrideDaysList() {
@@ -996,7 +1011,6 @@ function renderCalendar(year, month) {
                             assignmentDiv.classList.add('assigned-position', 'held');
                             assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                             // <<< ADDED: Increment count for stats (including held) >>>
-                            console.log(`[Stats Count] Held: Member=${assignedMemberName}, Pos=${position.name}`); // <<< DEBUG LOG
                             memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
                             // <<< ADDED: Increment position count >>>
                             positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
@@ -1020,7 +1034,6 @@ function renderCalendar(year, month) {
                                 assignmentDiv.classList.add('assigned-position');
                                 assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                                 // <<< ADDED: Increment count for stats >>>
-                                console.log(`[Stats Count] Auto: Member=${assignedMemberName}, Pos=${position.name}`); // <<< DEBUG LOG
                                 memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
                                 // <<< ADDED: Increment position count >>>
                                 positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
@@ -1163,7 +1176,6 @@ function renderCalendar(year, month) {
                     assignmentDiv.className = 'assigned-position held';
                     assignmentDiv.innerHTML = `<strong>${position.name}:</strong> ${assignedMemberName}`;
                     // <<< ADDED: Increment count for stats (including held) >>>
-                    console.log(`[Stats Count Mobile] Held: Member=${assignedMemberName}, Pos=${position.name}`); // <<< DEBUG LOG
                     memberAssignmentCounts.set(assignedMemberName, (memberAssignmentCounts.get(assignedMemberName) || 0) + 1);
                     // <<< ADDED: Increment position count >>>
                     positionAssignmentCounts.set(position.name, (positionAssignmentCounts.get(position.name) || 0) + 1);
@@ -1219,6 +1231,108 @@ function renderCalendar(year, month) {
     // <<< ADDED: Render statistics after calendar is done >>>
     renderStatistics(memberAssignmentCounts);
     renderPositionStatistics(positionAssignmentCounts); // <<< ADDED
+
+    // --- Calculate Days Not Scheduled (After Calendar Render) --- START ---
+    console.log("[Days Not Scheduled] Starting calculation...");
+    memberDaysNotScheduledCounts.clear(); // Clear previous counts
+
+    // Initialize counts for all members
+    teamMembers.forEach(member => memberDaysNotScheduledCounts.set(member.name, 0));
+
+    for (let d = 1; d <= daysInMonth; d++) {
+        const currentIterationDate = new Date(Date.UTC(year, month, d));
+        const currentCellDateStr = formatDateYYYYMMDD(currentIterationDate);
+        const currentDayOfWeek = currentIterationDate.getUTCDay();
+
+        // 1. Determine positions active on this day (same logic as calendar render)
+        let positionsScheduledOnThisDay = [];
+        const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
+        positions.forEach(position => {
+            let shouldAdd = false;
+            if (position.assignment_type === 'regular') {
+                shouldAdd = DEFAULT_ASSIGNMENT_DAYS_OF_WEEK.includes(currentDayOfWeek) || isOverride;
+            } else if (position.assignment_type === 'specific_days') {
+                const allowed = position.allowed_days ? position.allowed_days.split(',') : [];
+                shouldAdd = allowed.includes(currentDayOfWeek.toString());
+            }
+            if (shouldAdd) {
+                positionsScheduledOnThisDay.push(position);
+            }
+        });
+        const todaysSpecialAssignments = specialAssignments.filter(sa => sa.date === currentCellDateStr);
+        todaysSpecialAssignments.forEach(sa => {
+            const positionInfo = positions.find(p => p.id === sa.position_id);
+            if (positionInfo && !positionsScheduledOnThisDay.some(p => p.id === positionInfo.id)) {
+                positionsScheduledOnThisDay.push(positionInfo);
+            }
+        });
+        const todaysRemovedAssignments = removedAssignments.filter(ra => ra.date === currentCellDateStr);
+        positionsScheduledOnThisDay = positionsScheduledOnThisDay.filter(p => !
+todaysRemovedAssignments.some(ra => ra.position_id === p.id));
+
+        if (positionsScheduledOnThisDay.length === 0) {
+            // console.log(`[Days Not Scheduled] Skipping ${currentCellDateStr}: No positions scheduled.`);
+            continue; // No potential slots this day
+        }
+
+        // 2. Check each member
+        teamMembers.forEach(member => {
+            const memberName = member.name;
+
+            // 3. Check if member is qualified for *any* active position this day
+            const isQualifiedForAnySlot = positionsScheduledOnThisDay.some(pos => isMemberQualified(memberName, pos.id));
+            if (!isQualifiedForAnySlot) {
+                // console.log(`[Days Not Scheduled] Skipping ${memberName} on ${currentCellDateStr}: Not qualified for any active slot.`);
+                return; // Member couldn't have been scheduled anyway
+            }
+
+            // 4. Check if member is unavailable
+            if (isMemberUnavailable(memberName, currentCellDateStr)) {
+                // console.log(`[Days Not Scheduled] Skipping ${memberName} on ${currentCellDateStr}: Marked unavailable.`);
+                return; // Member couldn't have been scheduled
+            }
+
+            // 5. Check if member was *actually* assigned (check rendered DOM)
+            let wasAssigned = false;
+            // Check desktop view
+            const desktopCell = calendarBody.querySelector(`td[data-date="${currentCellDateStr}"]`);
+            if (desktopCell) {
+                const assignedDivs = desktopCell.querySelectorAll('.assigned-position');
+                assignedDivs.forEach(div => {
+                    // Check text content for member name after the colon
+                    const text = div.textContent || '';
+                    const parts = text.split(':');
+                    if (parts.length > 1 && parts[1].trim() === memberName) {
+                        wasAssigned = true;
+                    }
+                });
+            }
+            // Check mobile view if desktop didn't confirm assignment
+            if (!wasAssigned && mobileView) {
+                const mobileItem = mobileView.querySelector(`li[data-date="${currentCellDateStr}"]`);
+                if (mobileItem) {
+                    const assignedDivs = mobileItem.querySelectorAll('.assigned-position');
+                     assignedDivs.forEach(div => {
+                        const text = div.textContent || '';
+                        const parts = text.split(':');
+                        if (parts.length > 1 && parts[1].trim() === memberName) {
+                            wasAssigned = true;
+                        }
+                    });
+                }
+            }
+
+            // 6. Increment count if qualified, available, but not assigned
+            if (!wasAssigned) {
+                // console.log(`[Days Not Scheduled] Counting ${memberName} for ${currentCellDateStr}: Qualified, available, not assigned.`);
+                memberDaysNotScheduledCounts.set(memberName, (memberDaysNotScheduledCounts.get(memberName) || 0) + 1);
+            }
+        });
+    }
+    console.log("[Days Not Scheduled] Calculation complete:", memberDaysNotScheduledCounts);
+    // --- Calculate Days Not Scheduled --- END ---
+
+    renderDaysNotScheduledStats(memberDaysNotScheduledCounts); // <<< ADDED: Call the render function
 }
 
 function applyHeldVisuals() {
@@ -2254,7 +2368,7 @@ async function fetchUpcomingNotifications() {
 // <<< ADDED: Function to render statistics list and chart >>>
 function renderStatistics(countsMap) {
     if (!memberStatsList || !memberStatsChartCanvas || !statsNoDataMessage) {
-        console.warn('Member Statistics elements not found in the DOM.'); // Clarified warning
+        console.warn('Statistics elements not found in the DOM.');
         return;
     }
 
@@ -2278,7 +2392,7 @@ function renderStatistics(countsMap) {
     });
 
     if (totalAssignments === 0) {
-        memberStatsList.innerHTML = '<li>No member assignments found this month.</li>'; // Clarified message
+        memberStatsList.innerHTML = '<li>No assignments found for this month.</li>';
         statsNoDataMessage.style.display = 'block'; // Show no-data message
         memberStatsChartCanvas.style.display = 'none'; // Hide canvas
         return; // Don't render chart if no data
@@ -2437,5 +2551,69 @@ function renderPositionStatistics(countsMap) {
 
     // Create the chart
     positionStatsChart = new Chart(positionStatsChartCanvas, config);
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Function to render UNAVAILABILITY statistics list >>>
+function renderUnavailabilityStatistics(countsMap) {
+    if (!memberUnavailabilityStatsList || !statsUnavailabilityNoDataMessage) {
+        console.warn('Unavailability Statistics elements not found in the DOM.');
+        return;
+    }
+
+    memberUnavailabilityStatsList.innerHTML = ''; // Clear previous list
+    statsUnavailabilityNoDataMessage.style.display = 'none'; // Hide no-data message
+
+    // Sort members alphabetically
+    const sortedEntries = Array.from(countsMap.entries()).sort(([nameA], [nameB]) => nameA.localeCompare(nameB));
+
+    if (sortedEntries.length === 0) {
+        statsUnavailabilityNoDataMessage.style.display = 'block'; // Show no-data message
+    } else {
+        sortedEntries.forEach(([name, count]) => {
+            const li = document.createElement('li');
+            li.textContent = `${name}: ${count} day(s)`;
+            li.style.padding = '3px 0';
+            li.style.borderBottom = '1px dashed var(--list-item-border)';
+            memberUnavailabilityStatsList.appendChild(li);
+        });
+        // Remove border from last item
+        if (memberUnavailabilityStatsList.lastChild) {
+            memberUnavailabilityStatsList.lastChild.style.borderBottom = 'none';
+        }
+    }
+}
+// <<< END ADDED >>>
+
+// <<< ADDED: Function to render DAYS NOT SCHEDULED statistics list >>>
+function renderDaysNotScheduledStats(countsMap) {
+    if (!memberDaysNotScheduledStatsList || !statsNotScheduledNoDataMessage) {
+        console.warn('Days Not Scheduled Statistics elements not found in the DOM.');
+        return;
+    }
+
+    memberDaysNotScheduledStatsList.innerHTML = ''; // Clear previous list
+    statsNotScheduledNoDataMessage.style.display = 'none'; // Hide no-data message
+
+    // Sort members alphabetically
+    const sortedEntries = Array.from(countsMap.entries())
+                           .filter(([, count]) => count > 0) // Only show members with > 0 days not scheduled
+                           .sort(([nameA], [nameB]) => nameA.localeCompare(nameB));
+
+    if (sortedEntries.length === 0) {
+        statsNotScheduledNoDataMessage.style.display = 'block'; // Show the "all good" message
+    } else {
+        sortedEntries.forEach(([name, count]) => {
+            const li = document.createElement('li');
+            li.textContent = `${name}: ${count} day(s)`;
+            li.style.padding = '3px 0';
+            li.style.borderBottom = '1px dashed var(--list-item-border)';
+            memberDaysNotScheduledStatsList.appendChild(li);
+        });
+        // Remove border from last item
+        if (memberDaysNotScheduledStatsList.lastChild) {
+            memberDaysNotScheduledStatsList.lastChild.style.borderBottom = 'none';
+        }
+    }
 }
 // <<< END ADDED >>>
