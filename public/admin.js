@@ -17,7 +17,8 @@ const addPositionBtn = document.getElementById('addPositionBtn');
 const positionList = document.getElementById('position-list'); // Container UL
 const positionFeedbackMessage = document.getElementById('position-feedback-message'); // Feedback div
 // Unavailability
-const unavailabilityDateInput = document.getElementById('unavailabilityDate');
+const unavailabilityDateFromInput = document.getElementById('unavailabilityDateFrom'); // <<< MODIFIED
+const unavailabilityDateToInput = document.getElementById('unavailabilityDateTo');   // <<< MODIFIED
 const unavailabilityMemberSelect = document.getElementById('unavailabilityMember');
 const addUnavailabilityBtn = document.getElementById('addUnavailabilityBtn');
 const unavailableList = document.getElementById('unavailable-list');
@@ -1587,22 +1588,35 @@ async function removePosition(positionId) {
 }
 
 async function addUnavailability() {
-    console.log('Adding unavailability...');
-    const date = unavailabilityDateInput.value;
+    console.log('Adding unavailability period...');
+    const dateFrom = unavailabilityDateFromInput.value;
+    const dateTo = unavailabilityDateToInput.value;
     const member = unavailabilityMemberSelect.value;
     
-    if (!date || !member) {
-        alert('Please select both a date and a member.');
+    if (!dateFrom || !dateTo || !member) {
+        alert('Please select a member and both From and To dates.');
+        if (!member) unavailabilityMemberSelect.focus();
+        else if (!dateFrom) unavailabilityDateFromInput.focus();
+        else unavailabilityDateToInput.focus();
         return;
     }
 
-    await apiCall('/api/unavailability', {
+    // Chronological validation
+    if (new Date(dateFrom) > new Date(dateTo)) {
+        alert("'From Date' cannot be after 'To Date'.");
+        unavailabilityDateFromInput.focus();
+        return;
+    }
+
+    await apiCall('/api/unavailability/period', { // <<< MODIFIED endpoint
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ date, member })
+        body: JSON.stringify({ member, dateFrom, dateTo }) // <<< MODIFIED body
     });
 
-    unavailabilityDateInput.value = '';
+    // Clear inputs on success (apiCall handles refresh via fetchData)
+    unavailabilityDateFromInput.value = ''; // <<< MODIFIED
+    unavailabilityDateToInput.value = '';   // <<< MODIFIED
     unavailabilityMemberSelect.value = '';
 }
 
