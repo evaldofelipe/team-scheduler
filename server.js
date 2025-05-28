@@ -188,6 +188,20 @@ function normalizeAllowedDays(daysString) {
                            .sort(); // Sort for consistency
     return [...new Set(days)].join(','); // Remove duplicates and join
 }
+
+// Helper function to iterate through dates
+function getDatesInRange(startDate, endDate) {
+    const dates = [];
+    // Ensure UTC interpretation by using YYYY-MM-DD from ISO string and explicitly setting time for UTC
+    let currentDate = new Date(startDate.toISOString().slice(0,10) + 'T00:00:00Z');
+    const stopDate = new Date(endDate.toISOString().slice(0,10) + 'T00:00:00Z');
+    while (currentDate <= stopDate) {
+        dates.push(new Date(currentDate)); // Push a new Date object
+        currentDate.setUTCDate(currentDate.getUTCDate() + 1);
+    }
+    return dates;
+}
+
 // <<< ADDED: Format date helper (consistent with frontend) >>>
 function formatDateYYYYMMDD(dateInput) {
     try {
@@ -753,6 +767,77 @@ app.post('/api/unavailability', requireLogin('admin'), async (req, res) => { /* 
 app.delete('/api/unavailability/:id', requireLogin('admin'), async (req, res) => { /* ... unchanged ... */
     const { id } = req.params; if (!id || isNaN(parseInt(id))) { return res.status(400).send('Valid numeric unavailability ID is required.'); }
     try { const [result] = await pool.query('DELETE FROM unavailability WHERE id = ?', [id]); if (result.affectedRows > 0) { res.json({ success: true }); } else { res.status(404).send('Unavailability entry not found.'); } } catch (error) { console.error('Error deleting unavailability:', error); res.status(500).send('Server error deleting unavailability.'); }
+});
+
+// POST: Add unavailability for a period
+app.post('/api/unavailability/period', requireLogin('admin'), async (req, res) => {
+    const { member, dateFrom, dateTo } = req.body;
+    const dateFormatRegex = /^\d{4}-\d{2}-\d{2}$/;
+
+    // --- Input Validation ---
+    if (!member || !dateFrom || !dateTo) {
+        return res.status(400).json({ success: false, message: 'Member name, from date, and to date are required.' });
+    }
+    if (!dateFormatRegex.test(dateFrom) || !dateFormatRegex.test(dateTo)) {
+        return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD for both dates.' });
+    }
+
+    const fromDateObj = new Date(dateFrom + 'T00:00:00Z'); // Interpret as UTC
+    const toDateObj = new Date(dateTo + 'T00:00:00Z');   // Interpret as UTC
+
+    if (isNaN(fromDateObj.getTime()) || isNaN(toDateObj.getTime())) {
+        return res.status(400).json({ success: false, message: 'Invalid date values provided.' });
+    }
+
+    if (fromDateObj > toDateObj) {
+        return res.status(400).json({ success: false, message: "'From Date' cannot be after 'To Date'." });
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        // Check if member exists
+        const [memberExists] = await connection.query('SELECT 1 FROM team_members WHERE name = ?', [member]);
+        if (memberExists.length === 0) {
+            await connection.release();
+            return res.status(404).json({ success: false, message: `Team member '${member}' not found.` });
+        }
+
+        await connection.beginTransaction();
+
+        const datesToProcess = getDatesInRange(fromDateObj, toDateObj);
+        let datesAttempted = 0;
+        // Note: Accurately counting *newly* inserted rows with INSERT IGNORE is tricky without extra queries.
+        // We will count successful executions of INSERT IGNORE.
+
+        for (const dateObj of datesToProcess) {
+            const formattedDate = formatDateYYYYMMDD(dateObj); // Use existing helper
+            if (!formattedDate) {
+                // This should ideally not happen if getDatesInRange and formatDateYYYYMMDD are correct
+                console.warn(`Could not format date: ${dateObj}`);
+                continue; // Skip this date
+            }
+            // INSERT IGNORE will skip if the entry (member_name, unavailable_date) already exists
+            await connection.query(
+                'INSERT IGNORE INTO unavailability (member_name, unavailable_date) VALUES (?, ?)',
+                [member, formattedDate]
+            );
+            datesAttempted++; // Count each attempt to insert
+        }
+
+        await connection.commit();
+        res.status(201).json({ 
+            success: true, 
+            message: 'Unavailability period processed successfully.',
+            dates_processed: datesAttempted // Reflects the number of dates in the range processed
+        });
+
+    } catch (error) {
+        await connection.rollback();
+        console.error('Error adding unavailability period:', error);
+        res.status(500).json({ success: false, message: 'Server error adding unavailability period.' });
+    } finally {
+        if (connection) connection.release();
+    }
 });
 
 
