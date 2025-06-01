@@ -1986,12 +1986,12 @@ async function updateMemberAvailabilityDays(memberName) {
 
     console.log(`Updating availability days for ${memberName}:`, selectedDays);
 
-    // Assuming the API endpoint is /api/member-availability/:memberName
-    // and it expects a JSON body like { availableDays: ["0", "2", "4"] }
-    const success = await apiCall(`/api/member-availability/${encodeURIComponent(memberName)}`, {
-        method: 'POST', // Or PUT, depending on backend API design
+    // Assuming the API endpoint is /api/member-availability
+    // and it expects a JSON body like { memberName: "name", availableDays: ["0", "2", "4"] }
+    const success = await apiCall(`/api/member-availability`, { // URL Changed
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ availableDays: selectedDays })
+        body: JSON.stringify({ memberName: memberName, availableDays: selectedDays }) // Payload Changed
     },
     (data) => { // Success callback for apiCall
         // Update the local state on successful API call
