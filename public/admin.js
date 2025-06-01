@@ -880,7 +880,8 @@ function renderCalendar(year, month) {
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const daysInMonth = lastDayOfMonth.getDate();
-    const startDayOfWeek = firstDayOfMonth.getDay();
+    let startDayOfWeek = firstDayOfMonth.getDay(); // 0 for Sunday, 1 for Monday, ..., 6 for Saturday
+    startDayOfWeek = (startDayOfWeek === 0) ? 6 : startDayOfWeek - 1; // Convert to Mon=0, Tue=1, ..., Sun=6
     assignmentCounter = 0; // Reset global counter for auto-assignment
 
     const today = new Date();
@@ -1059,7 +1060,7 @@ function renderCalendar(year, month) {
     let date = 1;
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
-        for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+        for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) { // 0 for Monday, 6 for Sunday
             const cell = document.createElement('td');
             const dateNumberDiv = document.createElement('div');
             dateNumberDiv.className = 'date-number';
@@ -1068,7 +1069,12 @@ function renderCalendar(year, month) {
                 // Other month - before
                 cell.classList.add('other-month');
                 const prevMonthLastDay = new Date(year, month, 0).getDate();
-                dateNumberDiv.textContent = prevMonthLastDay - startDayOfWeek + dayOfWeek + 1;
+                // Correct calculation for previous month's days when startDayOfWeek is Mon=0
+                if (startDayOfWeek > dayOfWeek) { // Only true for days before the actual startDayOfWeek
+                    dateNumberDiv.textContent = prevMonthLastDay - (startDayOfWeek - dayOfWeek - 1);
+                } else { // Should not happen if logic is correct, but as a fallback
+                    dateNumberDiv.textContent = "?";
+                }
                 cell.appendChild(dateNumberDiv);
             } else if (date > daysInMonth) {
                 // Other month - after
@@ -1087,7 +1093,12 @@ function renderCalendar(year, month) {
 
                 if (currentCellDateStr === todayStr) cell.classList.add('today');
                 else if (cellDateOnly < today) cell.classList.add('past-day');
-                if (dayOfWeek === 0 || dayOfWeek === 6) cell.classList.add('weekend');
+
+                // Highlight weekends based on actual day (Sun=0, Sat=6 from getUTCDay())
+                const actualDayOfWeek = currentCellDate.getUTCDay();
+                if (actualDayOfWeek === 0 || actualDayOfWeek === 6) { // Sunday or Saturday
+                    cell.classList.add('weekend');
+                }
 
                 // Add Hold container (logic unchanged)
                 const holdContainer = document.createElement('div');

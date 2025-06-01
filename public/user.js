@@ -28,7 +28,7 @@ const MONTH_NAMES_PT = [
     "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"
 ];
 // Add Portuguese Day Names (for mobile view if needed, though HTML handles desktop)
-const DAY_NAMES_PT = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const DAY_NAMES_PT = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
 
 // --- Configuration ---
 const REGULAR_TIMES = { // <<< ADDED: Map for regular day times
@@ -191,7 +191,8 @@ function renderCalendar(year, month) {
     const firstDayOfMonth = new Date(year, month, 1);
     const lastDayOfMonth = new Date(year, month + 1, 0);
     const daysInMonth = lastDayOfMonth.getDate();
-    const startDayOfWeek = firstDayOfMonth.getDay();
+    let startDayOfWeek = firstDayOfMonth.getDay(); // 0 for Sunday, 1 for Monday, ..., 6 for Saturday
+    startDayOfWeek = (startDayOfWeek === 0) ? 6 : startDayOfWeek - 1; // Convert to Mon=0, Tue=1, ..., Sun=6
     assignmentCounter = 0;
     let date = 1;
 
@@ -203,7 +204,7 @@ function renderCalendar(year, month) {
     // Regular calendar rendering
     for (let week = 0; week < 6; week++) {
         const row = document.createElement('tr');
-        for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) {
+        for (let dayOfWeek = 0; dayOfWeek < 7; dayOfWeek++) { // 0 for Monday, 6 for Sunday
             const cell = document.createElement('td');
             const dateNumberDiv = document.createElement('div');
             dateNumberDiv.className = 'date-number';
@@ -212,7 +213,12 @@ function renderCalendar(year, month) {
                 cell.classList.add('other-month');
                 // Optionally display previous month's days faded
                 const prevMonthLastDay = new Date(year, month, 0).getDate();
-                dateNumberDiv.textContent = prevMonthLastDay - startDayOfWeek + dayOfWeek + 1;
+                // Correct calculation for previous month's days when startDayOfWeek is Mon=0
+                if (startDayOfWeek > dayOfWeek) { // Only true for days before the actual startDayOfWeek
+                    dateNumberDiv.textContent = prevMonthLastDay - (startDayOfWeek - dayOfWeek - 1);
+                } else { // Should not happen
+                    dateNumberDiv.textContent = "?";
+                }
                 cell.appendChild(dateNumberDiv);
             } else if (date > daysInMonth) {
                 cell.classList.add('other-month');
@@ -240,7 +246,12 @@ function renderCalendar(year, month) {
                 dateNumberDiv.textContent = date;
                 cell.appendChild(dateNumberDiv);
 
-                const currentDayOfWeek = currentCellDate.getUTCDay();
+                const currentDayOfWeek = currentCellDate.getUTCDay(); // Actual day: Sun=0, Mon=1...
+
+                // Highlight weekends based on actual day
+                if (currentDayOfWeek === 0 || currentDayOfWeek === 6) { // Sunday or Saturday
+                    cell.classList.add('weekend');
+                }
 
                 // Determine if assignments should happen today
                 const isOverride = overrideDays.some(o => o.date === currentCellDateStr);
@@ -399,9 +410,16 @@ function renderCalendar(year, month) {
         // Use Portuguese day names for mobile header
         const dateDisplay = document.createElement('span');
         dateDisplay.className = 'mobile-date';
-        dateDisplay.textContent = `${DAY_NAMES_PT[currentDayOfWeek]}, ${d + 1}`;
+        const actualDayForMobile = currentMobileDate.getUTCDay(); // Sun=0, Mon=1...
+        const dayNameIndex = (actualDayForMobile === 0) ? 6 : actualDayForMobile - 1; // Convert to Mon=0 ... Sun=6 for DAY_NAMES_PT
+        dateDisplay.textContent = `${DAY_NAMES_PT[dayNameIndex]}, ${d + 1}`;
         dayHeader.appendChild(dateDisplay);
         dayItem.appendChild(dayHeader);
+
+        // Add weekend class for mobile view based on actual day
+        if (actualDayForMobile === 0 || actualDayForMobile === 6) { // Sunday or Saturday
+            dayItem.classList.add('weekend');
+        }
 
         const dayContent = document.createElement('div');
         dayContent.className = 'mobile-day-content';
