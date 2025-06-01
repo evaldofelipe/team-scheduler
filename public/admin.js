@@ -653,6 +653,35 @@ function isMemberUnavailable(memberName, dateYYYYMMDD) {
     return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
 }
 
+/**
+ * Checks if a member is available on a specific date, considering both
+ * specific date unavailability and general day-of-week preferences.
+ * @param {string} memberName - The name of the member.
+ * @param {string} dateStr - The date string in YYYY-MM-DD format.
+ * @param {number} dayOfWeek - The day of the week (0 for Sunday, 1 for Monday, etc.).
+ * @returns {boolean} - True if the member is considered available, false otherwise.
+ */
+function isMemberAvailableOnDay(memberName, dateStr, dayOfWeek) {
+    // 1. Check for specific date unavailability first (e.g., vacation)
+    if (isMemberUnavailable(memberName, dateStr)) {
+        return false; // Member has a specific unavailability entry for this date
+    }
+
+    // 2. Check general day-of-week availability preferences
+    const memberSpecificWeekAvailability = memberAvailabilityDays.get(memberName);
+
+    // If the member has defined specific days of the week they are available
+    if (memberSpecificWeekAvailability && memberSpecificWeekAvailability.length > 0) {
+        // They must be available on this specific dayOfWeek
+        // Ensure comparison works if stored as string or number
+        return memberSpecificWeekAvailability.some(d => d == dayOfWeek.toString());
+    }
+
+    // If no specific day-of-week preferences are set for this member,
+    // they are considered available on any day of the week (as far as this check is concerned).
+    return true;
+}
+
 function removeAssignmentSelect() {
     const existingSelect = document.getElementById('temp-assignment-select');
     if (existingSelect) {
@@ -689,8 +718,13 @@ async function handleAssignmentClick(event) {
     }
 
     // Find qualified & available members for this position on this date
+    const clickedDate = new Date(dateStr + 'T00:00:00Z'); // Interpret dateStr in UTC context
+    const dayOfWeek = clickedDate.getUTCDay();
+
+    // Find qualified & available members for this position on this date, respecting day-of-week availability
     const availableQualifiedMembers = teamMembers.filter(member => {
-        return isMemberQualified(member.name, positionInfo.id) && !isMemberUnavailable(member.name, dateStr);
+        return isMemberQualified(member.name, positionInfo.id) &&
+               isMemberAvailableOnDay(member.name, dateStr, dayOfWeek);
     }).sort((a, b) => a.name.localeCompare(b.name)); // Sort members alphabetically
 
     const currentMemberName = assignmentDiv.classList.contains('assigned-position')
@@ -841,10 +875,15 @@ async function randomizeSingleDay(dateStr, cellElement) {
     }
 
     // 2. Get qualified & available members for *any* position today
+    // The currentDayOfWeek is already available from:
+    // const currentDayDate = new Date(dateStr + 'T00:00:00Z');
+    // const currentDayOfWeek = currentDayDate.getUTCDay();
+
     const availableMembersToday = teamMembers.filter(member => {
-        const isUnavailable = isMemberUnavailable(member.name, dateStr);
+        // isMemberAvailableOnDay checks both specific date unavailability and day-of-week preference.
+        const isGenerallyAvailable = isMemberAvailableOnDay(member.name, dateStr, currentDayOfWeek);
         const isQualifiedForAny = positionsForThisDay.some(pos => isMemberQualified(member.name, pos.id));
-        return !isUnavailable && isQualifiedForAny;
+        return isGenerallyAvailable && isQualifiedForAny;
     }).map(m => m.name); // Just get names
 
     // Prepare message for skipped slots
@@ -1029,8 +1068,10 @@ function renderCalendar(year, month) {
                     let skippedPreviousAssignee = false; // Flag to ensure we only skip once if needed
 
                     // Find all available and qualified members *for this specific position* on this day
+                    // Ensure currentDayOfWeek is defined in this scope. It is: const currentDayOfWeek = currentDateObj.getUTCDay();
                     const candidatesForSlot = membersForAssignment.filter(memberName =>
-                        !isMemberUnavailable(memberName, currentDateStr) && isMemberQualified(memberName, position.id)
+                        isMemberAvailableOnDay(memberName, currentDateStr, currentDayOfWeek) &&
+                        isMemberQualified(memberName, position.id)
                     );
 
                     while (assignedMemberName === null && attempts < memberCount) { // Outer loop still needed to cycle globally
