@@ -74,6 +74,7 @@ let specialAssignments = [];
 let removedAssignments = []; // <<< ADDED: State for removed slots
 let assignmentCounter = 0;
 let memberPositions = new Map(); // Store member position assignments
+let memberAvailabilityDays = new Map(); // Store member availability days
 let heldDays = new Map(); // Still use Map for temporary storage
 let memberAssignmentCounts = new Map(); // <<< ADDED: Store counts for statistics
 let memberStatsChart = null; // <<< ADDED: Store chart instance
@@ -105,7 +106,7 @@ async function fetchData() {
     console.log("Fetching data...");
     try {
         // <<< MODIFIED: Add removed assignments fetch >>>
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailabilityRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
@@ -113,11 +114,12 @@ async function fetchData() {
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
             fetch('/api/held-assignments'),
-            fetch('/api/removed-assignments') // Fetch removed assignments
+            fetch('/api/removed-assignments'), // Fetch removed assignments
+            fetch('/api/all-member-availability') // New fetch
         ]);
 
         // <<< MODIFIED: Include new response in checks >>>
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes];
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailabilityRes];
         if (responses.some(res => res.status === 401)) {
             console.warn("Session expired or unauthorized. Redirecting to login.");
             window.location.href = '/login.html?message=Session expired. Please log in.';
@@ -133,6 +135,7 @@ async function fetchData() {
         if (!allMemberPosRes.ok) errors.push(`All Member Positions: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
         if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`);
         if (!removedAssignRes.ok) errors.push(`Removed Assignments: ${removedAssignRes.status} ${removedAssignRes.statusText}`); // Check removed assignments response
+        if (!allMemberAvailabilityRes.ok) errors.push(`All Member Availability: ${allMemberAvailabilityRes.status} ${allMemberAvailabilityRes.statusText}`);
 
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
@@ -144,6 +147,7 @@ async function fetchData() {
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
         removedAssignments = await removedAssignRes.json(); // Store removed assignments
+        const allMemberAvailabilityData = await allMemberAvailabilityRes.json(); // Parse new data
 
         memberPositions.clear();
         for (const memberName in allMemberPositionsData) {
@@ -167,6 +171,13 @@ async function fetchData() {
         console.log("Fetched Held Assignments:", heldDays);
         console.log("Fetched Override Days:", overrideDays);
         console.log("Fetched Removed Assignments:", removedAssignments); // Log fetched data
+
+        memberAvailabilityDays.clear(); // Clear previous data
+        // Assuming allMemberAvailabilityData is an object like { "memberName": [0, 1, 5], ... }
+        for (const memberName in allMemberAvailabilityData) {
+            memberAvailabilityDays.set(memberName, allMemberAvailabilityData[memberName]);
+        }
+        console.log("Fetched Member Availability Days:", memberAvailabilityDays);
         return true;
 
     } catch (error) {
@@ -254,6 +265,30 @@ function renderTeamList() {
         
         li.appendChild(positionsDiv);
 
+        // START of new code for availability days
+        const availabilityDaysDiv = document.createElement('div');
+        availabilityDaysDiv.className = 'member-availability-days';
+
+        const memberCurrentAvailability = memberAvailabilityDays.get(member.name) || []; // Get current member's saved days
+
+        DAY_NAMES.forEach((dayName, dayIndex) => {
+            const label = document.createElement('label');
+            label.className = 'availability-day-checkbox'; // For potential styling
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = dayIndex.toString(); // Store day index (0-6)
+            checkbox.checked = memberCurrentAvailability.includes(dayIndex.toString()) || memberCurrentAvailability.includes(dayIndex); // Check if string or number index
+
+            // Add event listener for when the checkbox state changes
+            checkbox.addEventListener('change', () => updateMemberAvailabilityDays(member.name));
+
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${dayName}`));
+            availabilityDaysDiv.appendChild(label);
+        });
+        li.appendChild(availabilityDaysDiv); // Append new div
+
         const editFormDiv = document.createElement('div');
         editFormDiv.className = 'edit-member-form';
         editFormDiv.style.display = 'none';
@@ -296,12 +331,14 @@ function toggleEditMemberForm(memberName, show = true) {
     const infoDiv = li.querySelector('.member-info');
     const actionsDiv = li.querySelector('.member-actions');
     const positionsDiv = li.querySelector('.member-positions');
+    const availabilityDiv = li.querySelector('.member-availability-days');
     const editFormDiv = li.querySelector('.edit-member-form');
 
-    if (infoDiv && actionsDiv && positionsDiv && editFormDiv) {
+    if (infoDiv && actionsDiv && positionsDiv && availabilityDiv && editFormDiv) { // Added availabilityDiv
         infoDiv.style.display = show ? 'none' : '';
         actionsDiv.style.display = show ? 'none' : '';
         positionsDiv.style.display = show ? 'none' : '';
+        availabilityDiv.style.display = show ? 'none' : ''; // Added this line
         editFormDiv.style.display = show ? 'block' : 'none';
         if (show) {
             editFormDiv.querySelector('.edit-member-name-input')?.focus();
@@ -1913,6 +1950,64 @@ async function updateMemberPositions(memberName) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ positionIds: checkedPositions })
     });
+}
+
+async function updateMemberAvailabilityDays(memberName) {
+    const memberItem = teamList.querySelector(`.team-member-item[data-member-name="${memberName}"]`);
+
+    if (!memberItem) {
+        console.error(`Could not find list item for member: ${memberName} when updating availability.`);
+        alert(`Error: Could not find UI elements for ${memberName} to update availability.`);
+        return;
+    }
+
+    const availabilityDaysDiv = memberItem.querySelector('.member-availability-days');
+    if (!availabilityDaysDiv) {
+        console.error(`Could not find availability days div for member: ${memberName}`);
+        alert(`Error: Could not find availability checkboxes for ${memberName}.`);
+        return;
+    }
+
+    const selectedDayCheckboxes = availabilityDaysDiv.querySelectorAll('input[type="checkbox"]:checked');
+    const selectedDays = Array.from(selectedDayCheckboxes).map(cb => cb.value); // Values are '0' through '6'
+
+    console.log(`Updating availability days for ${memberName}:`, selectedDays);
+
+    // Assuming the API endpoint is /api/member-availability/:memberName
+    // and it expects a JSON body like { availableDays: ["0", "2", "4"] }
+    const success = await apiCall(`/api/member-availability/${encodeURIComponent(memberName)}`, {
+        method: 'POST', // Or PUT, depending on backend API design
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ availableDays: selectedDays })
+    },
+    (data) => { // Success callback for apiCall
+        // Update the local state on successful API call
+        memberAvailabilityDays.set(memberName, selectedDays.map(day => parseInt(day, 10))); // Store as numbers
+        console.log(`Successfully updated availability for ${memberName}. New local state:`, memberAvailabilityDays.get(memberName));
+        // Optionally, provide user feedback e.g., a temporary message or log
+        // No specific UI feedback needed here unless requirements change.
+        // Re-render calendar if these changes should immediately affect it.
+        // For now, just updating the map as per plan.
+        // renderCalendar(currentDate.getFullYear(), currentDate.getMonth()); // Consider if this is needed
+    },
+    (errorText) => { // Error callback for apiCall
+        alert(`Failed to update availability for ${memberName}: ${errorText}`);
+        // Optionally, revert checkbox changes on error, though this can be complex.
+        // For now, the UI will remain as is, but the backend sync failed.
+        // Re-fetch data to ensure UI consistency with backend might be an option after an error.
+        // initializeAdminView(); // This would revert all changes, perhaps too drastic.
+    });
+
+    if (success) {
+        // If apiCall itself indicates success and successCallback was called.
+        // Additional actions after successful update can go here if not in successCallback.
+    } else {
+        // If apiCall indicates failure (e.g. network error before reaching server, or server error not caught by errorCallback)
+        // This block might be redundant if apiCall's errorCallback handles all user-facing error messages.
+        // However, if you want to ensure some action (like trying to revert UI) happens even for network errors,
+        // you might add logic here. For now, rely on apiCall's error handling.
+        console.error(`API call to update availability for ${memberName} reported failure or network issue.`);
+    }
 }
 
 function isMemberQualified(memberName, positionId) {
