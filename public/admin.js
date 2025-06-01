@@ -127,6 +127,7 @@ async function fetchData() {
         }
 
         const errors = [];
+        // Standard error checks for critical endpoints
         if (!membersRes.ok) errors.push(`Members: ${membersRes.status} ${membersRes.statusText}`);
         if (!unavailRes.ok) errors.push(`Unavailability: ${unavailRes.status} ${unavailRes.statusText}`);
         if (!positionsRes.ok) errors.push(`Positions: ${positionsRes.status} ${positionsRes.statusText}`);
@@ -134,8 +135,20 @@ async function fetchData() {
         if (!specialAssignRes.ok) errors.push(`Special Assignments: ${specialAssignRes.status} ${specialAssignRes.statusText}`);
         if (!allMemberPosRes.ok) errors.push(`All Member Positions: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
         if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`);
-        if (!removedAssignRes.ok) errors.push(`Removed Assignments: ${removedAssignRes.status} ${removedAssignRes.statusText}`); // Check removed assignments response
-        if (!allMemberAvailabilityRes.ok) errors.push(`All Member Availability: ${allMemberAvailabilityRes.status} ${allMemberAvailabilityRes.statusText}`);
+        if (!removedAssignRes.ok) errors.push(`Removed Assignments: ${removedAssignRes.status} ${removedAssignRes.statusText}`);
+
+        // Specific handling for allMemberAvailabilityRes
+        let allMemberAvailabilityData = {}; // Default to empty object
+        if (allMemberAvailabilityRes.status === 404) {
+            console.warn("'/api/all-member-availability' endpoint not found (404). Defaulting to empty availability data. This is a temporary workaround.");
+            // memberAvailabilityDays.clear() will be called later anyway
+        } else if (!allMemberAvailabilityRes.ok) {
+            // Handle other non-404 errors for this endpoint normally
+            errors.push(`All Member Availability: ${allMemberAvailabilityRes.status} ${allMemberAvailabilityRes.statusText}`);
+        } else {
+            // If OK and not 404, parse the JSON
+            allMemberAvailabilityData = await allMemberAvailabilityRes.json();
+        }
 
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
@@ -146,8 +159,8 @@ async function fetchData() {
         specialAssignments = await specialAssignRes.json();
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
-        removedAssignments = await removedAssignRes.json(); // Store removed assignments
-        const allMemberAvailabilityData = await allMemberAvailabilityRes.json(); // Parse new data
+        removedAssignments = await removedAssignRes.json();
+        // allMemberAvailabilityData is already defined and potentially populated above
 
         memberPositions.clear();
         for (const memberName in allMemberPositionsData) {
@@ -170,14 +183,14 @@ async function fetchData() {
         console.log("Fetched Member Positions:", memberPositions);
         console.log("Fetched Held Assignments:", heldDays);
         console.log("Fetched Override Days:", overrideDays);
-        console.log("Fetched Removed Assignments:", removedAssignments); // Log fetched data
+        console.log("Fetched Removed Assignments:", removedAssignments);
 
-        memberAvailabilityDays.clear(); // Clear previous data
-        // Assuming allMemberAvailabilityData is an object like { "memberName": [0, 1, 5], ... }
+        memberAvailabilityDays.clear(); // Clear previous data, then populate
+        // This loop is safe even if allMemberAvailabilityData is an empty object (from 404)
         for (const memberName in allMemberAvailabilityData) {
             memberAvailabilityDays.set(memberName, allMemberAvailabilityData[memberName]);
         }
-        console.log("Fetched Member Availability Days:", memberAvailabilityDays);
+        console.log("Fetched Member Availability Days (may be defaulted due to 404):", memberAvailabilityDays);
         return true;
 
     } catch (error) {
