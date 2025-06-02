@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS removed_assignments (
 );
 -- <<< END ADDED >>>
 
+-- Create the member_availability_days table
+-- This table stores the general days of the week a member is available.
+CREATE TABLE IF NOT EXISTS member_availability_days (
+    member_name VARCHAR(100) NOT NULL,
+    day_of_week INT NOT NULL, -- 0 for Sunday, 1 for Monday, ..., 6 for Saturday
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (member_name, day_of_week),
+    FOREIGN KEY (member_name) REFERENCES team_members(name) ON DELETE CASCADE,
+    CONSTRAINT chk_day_of_week CHECK (day_of_week >= 0 AND day_of_week <= 6) -- Ensure day_of_week is valid
+);
+
 -- --- Sample Data (IMPORTANT: Use secure passwords and hashing in real apps!) ---
 
 -- Delete existing sample users first to avoid errors on re-run
