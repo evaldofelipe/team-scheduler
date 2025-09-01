@@ -20,6 +20,7 @@ const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
 const APP_URL = process.env.APP_URL || 'http://localhost:' + PORT; // Default to localhost if not set
 const SMS_BODY_TEMPLATE = process.env.SMS_BODY_TEMPLATE || '[Schedule] You are scheduled on {DAY_OF_WEEK}, {DATE} at {TIME}! Check: {APP_URL}';
 const SMS_GENERIC_TEMPLATE = process.env.SMS_GENERIC_TEMPLATE || '[Schedule] Reminder: Please check your schedule at {APP_URL}'; // For individual button
+const SMS_WEEKLY_TEMPLATE = process.env.SMS_WEEKLY_TEMPLATE || '[Schedule] This week you are on duty on: {DAYS}. Check details: {APP_URL}';
 
 // <<< ADDED: Automation Config >>>
 const AUTOMATION_CHECK_INTERVAL = process.env.AUTOMATION_CHECK_INTERVAL || '0 * * * *'; // Default: hourly
@@ -1520,6 +1521,103 @@ app.listen(PORT, () => {
 
 // --- Automated Notification Logic ---
 
+// <<< ADDED: Function to send a weekly schedule summary >>>
+async function sendWeeklyScheduleNotifications() {
+    const checkRunId = `WeeklyRun-${Date.now()}`;
+    console.log(`[${new Date().toISOString()}] ${checkRunId}: Running weekly schedule notification job...`);
+
+    if (!twilioClient) {
+        console.log(`[${checkRunId}] Skipping weekly notifications: Twilio client not initialized.`);
+        return;
+    }
+
+    // 1. Fetch data
+    const simulationData = await fetchAllDataForSimulation();
+    if (!simulationData || !simulationData.members || simulationData.members.length === 0) {
+        console.error(`[${checkRunId}] Failed to fetch simulation data or no members found. Aborting job.`);
+        return;
+    }
+
+    // 2. Calculate date range for the current week (Monday to Sunday)
+    const today = new Date();
+    const currentDayOfWeek = today.getUTCDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+
+    // Set to the most recent Monday. If today is Sunday (0), go back 6 days. If Monday (1), 0 days.
+    const mondayOffset = (currentDayOfWeek === 0) ? -6 : 1 - currentDayOfWeek;
+    const startDate = new Date(today);
+    startDate.setUTCDate(today.getUTCDate() + mondayOffset);
+
+    const endDate = new Date(startDate);
+    endDate.setUTCDate(startDate.getUTCDate() + 6); // Sunday is 6 days after Monday
+
+    const startDateStr = formatDateYYYYMMDD(startDate);
+    const endDateStr = formatDateYYYYMMDD(endDate);
+    console.log(`[${checkRunId}] Simulating weekly assignments from ${startDateStr} to ${endDateStr}`);
+
+    // 3. Simulate assignments for the week
+    const simulated = await simulateAssignmentsForDateRange(startDateStr, endDateStr, simulationData);
+
+    // 4. Group assignments by member
+    const memberSchedules = new Map(); // { memberName => [dayName1, dayName2, ...] }
+    simulated.forEach((dailyAssignments, dateStr) => {
+        const dateObj = new Date(dateStr + 'T00:00:00Z');
+        const dayOfWeek = dateObj.getUTCDay();
+        const dayName = DAY_NAMES_PT[dayOfWeek];
+
+        dailyAssignments.forEach(assignment => {
+            const { assignedMemberName } = assignment;
+            if (!memberSchedules.has(assignedMemberName)) {
+                memberSchedules.set(assignedMemberName, new Set()); // Use a Set to avoid duplicate day names
+            }
+            memberSchedules.get(assignedMemberName).add(dayName);
+        });
+    });
+
+    if (memberSchedules.size === 0) {
+        console.log(`[${checkRunId}] No assignments found for anyone this week. No notifications to send.`);
+        return;
+    }
+
+    console.log(`[${checkRunId}] Found ${memberSchedules.size} members with assignments this week. Preparing notifications...`);
+
+    // 5. Construct and send notifications
+    for (const [memberName, daysSet] of memberSchedules.entries()) {
+        const memberInfo = simulationData.members.find(m => m.name === memberName);
+        const phoneNumber = memberInfo?.phone_number;
+
+        if (!phoneNumber) {
+            console.log(`[${checkRunId}] Skipping notification for ${memberName}: No phone number configured.`);
+            continue;
+        }
+
+        const daysArray = Array.from(daysSet);
+        if (daysArray.length === 0) {
+            continue; // Should not happen, but as a safeguard
+        }
+
+        const daysString = daysArray.join(', ');
+
+        const messageBody = SMS_WEEKLY_TEMPLATE
+            .replace('{DAYS}', daysString)
+            .replace('{APP_URL}', APP_URL);
+
+        try {
+            console.log(`[${checkRunId}] Sending weekly summary to ${memberName} (${phoneNumber}) for days: ${daysString}`);
+            await twilioClient.messages.create({
+                body: messageBody,
+                messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
+                to: phoneNumber
+            });
+            console.log(`[${checkRunId}] Weekly summary sent successfully to ${memberName}.`);
+        } catch (smsError) {
+            console.error(`[${checkRunId}] Error sending weekly summary SMS to ${memberName}:`, smsError.message);
+        }
+    }
+     console.log(`[${new Date().toISOString()}] ${checkRunId}: Weekly schedule notification job complete.`);
+}
+// <<< END ADDED >>>
+
+
 // <<< MODIFIED: Function to check for upcoming assignments and send notifications >>>
 async function checkAndSendNotifications() {
     const checkRunId = `CheckRun-${Date.now()}`;
@@ -1664,4 +1762,15 @@ if (AUTOMATION_CHECK_INTERVAL) {
     // setTimeout(checkAndSendNotifications, 5000); // Run 5 seconds after start
 } else {
     console.log("Automated notification checker is disabled due to invalid cron pattern.");
+}
+
+// <<< ADDED: Schedule for weekly summary notification >>>
+// Runs at 12:00 (noon) every Monday.
+const weeklySchedulePattern = '0 12 * * 1';
+if (cron.validate(weeklySchedulePattern)) {
+    cron.schedule(weeklySchedulePattern, sendWeeklyScheduleNotifications);
+    console.log(`Weekly schedule notification job scheduled with pattern: ${weeklySchedulePattern}`);
+} else {
+    // This case is unlikely for a hardcoded valid pattern but is good practice.
+    console.error(`Invalid cron pattern for weekly notifications: "${weeklySchedulePattern}". Weekly job disabled.`);
 }
