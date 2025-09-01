@@ -74,6 +74,7 @@ let specialAssignments = [];
 let removedAssignments = []; // <<< ADDED: State for removed slots
 let assignmentCounter = 0;
 let memberPositions = new Map(); // Store member position assignments
+let memberAvailabilities = new Map(); // Store member availability assignments
 let heldDays = new Map(); // Still use Map for temporary storage
 let memberAssignmentCounts = new Map(); // <<< ADDED: Store counts for statistics
 let memberStatsChart = null; // <<< ADDED: Store chart instance
@@ -105,7 +106,7 @@ async function fetchData() {
     console.log("Fetching data...");
     try {
         // <<< MODIFIED: Add removed assignments fetch >>>
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
@@ -113,11 +114,12 @@ async function fetchData() {
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
             fetch('/api/held-assignments'),
-            fetch('/api/removed-assignments') // Fetch removed assignments
+            fetch('/api/removed-assignments'), // Fetch removed assignments
+            fetch('/api/all-member-availabilities')
         ]);
 
         // <<< MODIFIED: Include new response in checks >>>
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes];
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailRes];
         if (responses.some(res => res.status === 401)) {
             console.warn("Session expired or unauthorized. Redirecting to login.");
             window.location.href = '/login.html?message=Session expired. Please log in.';
@@ -133,6 +135,7 @@ async function fetchData() {
         if (!allMemberPosRes.ok) errors.push(`All Member Positions: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
         if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`);
         if (!removedAssignRes.ok) errors.push(`Removed Assignments: ${removedAssignRes.status} ${removedAssignRes.statusText}`); // Check removed assignments response
+        if (!allMemberAvailRes.ok) errors.push(`All Member Availabilities: ${allMemberAvailRes.status} ${allMemberAvailRes.statusText}`);
 
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
@@ -144,10 +147,16 @@ async function fetchData() {
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
         removedAssignments = await removedAssignRes.json(); // Store removed assignments
+        const allMemberAvailabilitiesData = await allMemberAvailRes.json();
 
         memberPositions.clear();
         for (const memberName in allMemberPositionsData) {
             memberPositions.set(memberName, allMemberPositionsData[memberName]);
+        }
+
+        memberAvailabilities.clear();
+        for (const memberName in allMemberAvailabilitiesData) {
+            memberAvailabilities.set(memberName, allMemberAvailabilitiesData[memberName]);
         }
 
         heldDays.clear();
@@ -164,6 +173,7 @@ async function fetchData() {
         console.log("Fetched Team Members:", teamMembers);
         console.log("Fetched Positions (with config):", positions);
         console.log("Fetched Member Positions:", memberPositions);
+        console.log("Fetched Member Availabilities:", memberAvailabilities);
         console.log("Fetched Held Assignments:", heldDays);
         console.log("Fetched Override Days:", overrideDays);
         console.log("Fetched Removed Assignments:", removedAssignments); // Log fetched data
@@ -254,6 +264,41 @@ function renderTeamList() {
         
         li.appendChild(positionsDiv);
 
+        const availabilityDiv = document.createElement('div');
+        availabilityDiv.className = 'member-availability';
+        availabilityDiv.style.marginTop = '10px';
+
+        const availabilityTitle = document.createElement('div');
+        availabilityTitle.className = 'member-section-title';
+        availabilityTitle.textContent = 'Available Days:';
+        availabilityDiv.appendChild(availabilityTitle);
+
+        const daysContainer = document.createElement('div');
+        daysContainer.className = 'member-section-content';
+
+        const daysOfWeek = [
+            { name: 'Sun', id: 1 }, { name: 'Mon', id: 2 }, { name: 'Tue', id: 3 },
+            { name: 'Wed', id: 4 }, { name: 'Thu', id: 5 }, { name: 'Fri', id: 6 }, { name: 'Sat', id: 7 }
+        ];
+        const memberCurrentAvailability = memberAvailabilities.get(member.name) || [];
+
+        daysOfWeek.forEach(day => {
+            const label = document.createElement('label');
+            label.className = 'availability-checkbox position-checkbox'; // Reuse position-checkbox style
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = day.id;
+            checkbox.checked = memberCurrentAvailability.some(d => d.id === day.id);
+            checkbox.addEventListener('change', () => updateMemberAvailability(member.name));
+
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${day.name}`));
+            daysContainer.appendChild(label);
+        });
+        availabilityDiv.appendChild(daysContainer);
+        li.appendChild(availabilityDiv);
+
         const editFormDiv = document.createElement('div');
         editFormDiv.className = 'edit-member-form';
         editFormDiv.style.display = 'none';
@@ -296,12 +341,14 @@ function toggleEditMemberForm(memberName, show = true) {
     const infoDiv = li.querySelector('.member-info');
     const actionsDiv = li.querySelector('.member-actions');
     const positionsDiv = li.querySelector('.member-positions');
+    const availabilityDiv = li.querySelector('.member-availability');
     const editFormDiv = li.querySelector('.edit-member-form');
 
-    if (infoDiv && actionsDiv && positionsDiv && editFormDiv) {
+    if (infoDiv && actionsDiv && positionsDiv && availabilityDiv && editFormDiv) {
         infoDiv.style.display = show ? 'none' : '';
         actionsDiv.style.display = show ? 'none' : '';
         positionsDiv.style.display = show ? 'none' : '';
+        availabilityDiv.style.display = show ? 'none' : '';
         editFormDiv.style.display = show ? 'block' : 'none';
         if (show) {
             editFormDiv.querySelector('.edit-member-name-input')?.focus();
@@ -1923,6 +1970,27 @@ async function updateMemberPositions(memberName) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ positionIds: checkedPositions })
+    });
+}
+
+async function updateMemberAvailability(memberName) {
+    const memberItem = teamList.querySelector(`.team-member-item[data-member-name="${memberName}"]`);
+
+    if (!memberItem) {
+        console.error(`Could not find list item for member: ${memberName}`);
+        return;
+    }
+
+    const checkedDays = Array.from(
+        memberItem.querySelectorAll('.member-availability input[type="checkbox"]:checked')
+    ).map(cb => parseInt(cb.value));
+
+    console.log(`Updating availability for ${memberName}:`, checkedDays);
+
+    await apiCall(`/api/member-availability/${encodeURIComponent(memberName)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dayIds: checkedDays })
     });
 }
 
