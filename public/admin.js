@@ -49,6 +49,7 @@ const removedAssignmentsList = document.getElementById('removed-assignments-list
 // <<< END ADDED >>>
 // <<< ADDED: Upcoming Notifications Selectors >>>
 const upcomingNotificationsList = document.getElementById('upcoming-notifications-list');
+const testWeeklyNotificationBtn = document.getElementById('test-weekly-notification-btn');
 // <<< ADDED: Statistics Elements >>>
 const memberStatsList = document.getElementById('memberStatsList');
 const memberStatsChartCanvas = document.getElementById('memberStatsChart');
@@ -2395,6 +2396,44 @@ if (notifyDayBtn) {
     console.warn("Notify Day button not found.");
 }
 
+// <<< ADDED: Weekly Notification Test Button >>>
+if (testWeeklyNotificationBtn) {
+    testWeeklyNotificationBtn.addEventListener('click', async () => {
+        if (confirm('Are you sure you want to send weekly notifications to all members scheduled for the current week?')) {
+            testWeeklyNotificationBtn.disabled = true;
+            testWeeklyNotificationBtn.textContent = 'Sending...';
+            
+            try {
+                const response = await fetch('/api/notify-weekly', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert('Weekly notifications sent successfully!');
+                    // Refresh the upcoming notifications list
+                    await fetchUpcomingNotifications();
+                } else {
+                    alert(`Failed to send weekly notifications: ${data.message}`);
+                }
+            } catch (error) {
+                console.error('Error sending weekly notifications:', error);
+                alert('Error sending weekly notifications. Please check the console for details.');
+            } finally {
+                testWeeklyNotificationBtn.disabled = false;
+                testWeeklyNotificationBtn.textContent = '📅 Test Weekly Notification';
+            }
+        }
+    });
+} else {
+    console.warn("Test Weekly Notification button not found.");
+}
+// <<< END ADDED >>>
+
 // <<< ADDED: Functions to handle adding/removing removed assignments >>>
 async function addRemovedAssignment() {
     const date = removedAssignmentDateInput.value;
@@ -2460,10 +2499,25 @@ function renderUpcomingNotifications(upcoming = []) {
             console.warn("Could not format notification date:", notif.notificationTime, e);
         }
 
-        li.innerHTML = `
-            <span class="upcoming-time">[${formattedTime}]</span>
-            <span class="upcoming-details">${notif.memberName} (${notif.positionName} on ${notif.assignmentDate})</span>
-        `;
+        // Check if this is a weekly notification
+        if (notif.isWeekly) {
+            li.innerHTML = `
+                <span class="upcoming-time">[${formattedTime}]</span>
+                <span class="upcoming-details weekly-notification">
+                    📅 <strong>${notif.memberName}</strong> - ${notif.positionName} (${notif.assignmentDate})
+                </span>
+            `;
+            li.style.backgroundColor = 'var(--accent-light, #e3f2fd)';
+            li.style.borderLeft = '4px solid var(--accent-color, #2196f3)';
+            li.style.padding = '8px 12px';
+            li.style.margin = '4px 0';
+            li.style.borderRadius = '4px';
+        } else {
+            li.innerHTML = `
+                <span class="upcoming-time">[${formattedTime}]</span>
+                <span class="upcoming-details">${notif.memberName} (${notif.positionName} on ${notif.assignmentDate})</span>
+            `;
+        }
         upcomingNotificationsList.appendChild(li);
     });
 }
