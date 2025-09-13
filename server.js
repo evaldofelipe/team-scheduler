@@ -20,6 +20,7 @@ const TWILIO_MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID;
 const APP_URL = process.env.APP_URL || 'http://localhost:' + PORT; // Default to localhost if not set
 const SMS_BODY_TEMPLATE = process.env.SMS_BODY_TEMPLATE || '[Schedule] You are scheduled on {DAY_OF_WEEK}, {DATE} at {TIME}! Check: {APP_URL}';
 const SMS_GENERIC_TEMPLATE = process.env.SMS_GENERIC_TEMPLATE || '[Schedule] Reminder: Please check your schedule at {APP_URL}'; // For individual button
+const SMS_WEEKLY_TEMPLATE = process.env.SMS_WEEKLY_TEMPLATE || '[Weekly Schedule] This week you are scheduled: {SCHEDULE_DETAILS}. Check: {APP_URL}'; // For weekly Monday notifications
 
 // <<< ADDED: Automation Config >>>
 const AUTOMATION_CHECK_INTERVAL = process.env.AUTOMATION_CHECK_INTERVAL || '0 * * * *'; // Default: hourly
@@ -1257,6 +1258,19 @@ app.post('/api/assignment/set', requireLogin('admin'), async (req, res) => {
 });
 // <<< END NEW ENDPOINT >>>
 
+// <<< ADDED: Manual Weekly Notification Endpoint >>>
+app.post('/api/notify-weekly', requireLogin('admin'), async (req, res) => {
+    try {
+        console.log('Manual weekly notification triggered by admin');
+        await sendWeeklyMondayNotifications();
+        res.json({ success: true, message: 'Weekly notifications sent successfully.' });
+    } catch (error) {
+        console.error('Error in manual weekly notification:', error);
+        res.status(500).json({ success: false, message: 'Failed to send weekly notifications.' });
+    }
+});
+// <<< END ADDED >>>
+
 // <<< MODIFIED: Individual Notification Endpoint (Sends Generic Message) >>>
 app.post('/api/notify-member/:name', requireLogin('admin'), async (req, res) => {
     const memberName = decodeURIComponent(req.params.name);
@@ -1744,6 +1758,121 @@ async function checkAndSendNotifications() {
 }
 // <<< END MODIFIED >>>
 
+// <<< ADDED: Weekly Monday Notification Function >>>
+async function sendWeeklyMondayNotifications() {
+    const checkRunId = `WeeklyCheck-${Date.now()}`;
+    console.log(`[${new Date().toISOString()}] ${checkRunId}: Running weekly Monday notification check...`);
+
+    if (!twilioClient) {
+        console.log(`[${checkRunId}] Skipping weekly notification check: Twilio client not initialized.`);
+        return;
+    }
+
+    // 1. Fetch data
+    const simulationData = await fetchAllDataForSimulation();
+    if (!simulationData) {
+        console.error(`[${checkRunId}] Failed to fetch simulation data. Aborting weekly check.`);
+        return;
+    }
+
+    // 2. Calculate current week (Monday to Sunday)
+    const now = new Date();
+    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const daysFromMonday = currentDay === 0 ? 6 : currentDay - 1; // Calculate days since Monday
+    
+    const mondayDate = new Date(now);
+    mondayDate.setDate(now.getDate() - daysFromMonday);
+    mondayDate.setHours(0, 0, 0, 0);
+    
+    const sundayDate = new Date(mondayDate);
+    sundayDate.setDate(mondayDate.getDate() + 6);
+    sundayDate.setHours(23, 59, 59, 999);
+
+    const startDateStr = formatDateYYYYMMDD(mondayDate);
+    const endDateStr = formatDateYYYYMMDD(sundayDate);
+
+    console.log(`[${checkRunId}] Checking weekly schedule from ${startDateStr} to ${endDateStr}`);
+
+    // 3. Simulate assignments for the current week
+    const simulated = await simulateAssignmentsForDateRange(startDateStr, endDateStr, simulationData);
+
+    // 4. Group assignments by member
+    const memberSchedules = new Map(); // memberName -> [{ date, position, time, dayOfWeek }]
+
+    simulated.forEach((dailyAssignments, dateStr) => {
+        dailyAssignments.forEach(assignment => {
+            const { position, assignedMemberName, eventTime } = assignment;
+            if (!assignedMemberName) return;
+
+            if (!memberSchedules.has(assignedMemberName)) {
+                memberSchedules.set(assignedMemberName, []);
+            }
+
+            const dateObj = new Date(dateStr + 'T00:00:00Z');
+            const dayOfWeek = dateObj.getUTCDay();
+            const dayOfWeekName = DAY_NAMES_PT[dayOfWeek] || 'o dia';
+            const formattedDate = dateObj.toLocaleDateString('pt-BR', { timeZone: 'UTC', day: '2-digit', month: '2-digit', year: 'numeric' });
+
+            memberSchedules.get(assignedMemberName).push({
+                date: dateStr,
+                position: position.name,
+                time: eventTime || 'horário habitual',
+                dayOfWeek: dayOfWeekName,
+                formattedDate: formattedDate
+            });
+        });
+    });
+
+    // 5. Send notifications to each member with assignments
+    let notificationsSent = 0;
+    let notificationsSkipped = 0;
+
+    for (const [memberName, assignments] of memberSchedules) {
+        if (assignments.length === 0) continue;
+
+        try {
+            const memberInfo = simulationData.members.find(m => m.name === memberName);
+            const phoneNumber = memberInfo?.phone_number;
+            
+            if (!phoneNumber) {
+                console.log(`[${checkRunId}] Skipping ${memberName}: No phone number.`);
+                notificationsSkipped++;
+                continue;
+            }
+
+            // Format schedule details
+            const scheduleDetails = assignments.map(assignment => 
+                `${assignment.dayOfWeek} (${assignment.formattedDate}) - ${assignment.position} às ${assignment.time}`
+            ).join(', ');
+
+            // Construct message
+            const messageBody = SMS_WEEKLY_TEMPLATE
+                .replace('{SCHEDULE_DETAILS}', scheduleDetails)
+                .replace('{APP_URL}', APP_URL);
+
+            console.log(`[${checkRunId}] Sending weekly notification to ${memberName} (${phoneNumber})`);
+            const message = await twilioClient.messages.create({
+                body: messageBody,
+                messagingServiceSid: TWILIO_MESSAGING_SERVICE_SID,
+                to: phoneNumber
+            });
+
+            console.log(`[${checkRunId}] Weekly SMS sent successfully to ${memberName}. SID: ${message.sid}`);
+            notificationsSent++;
+
+            // Add delay between messages to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, 1100));
+
+        } catch (error) {
+            console.error(`[${checkRunId}] Error sending weekly SMS to ${memberName}:`, error);
+            notificationsSkipped++;
+        }
+    }
+
+    console.log(`[${new Date().toISOString()}] ${checkRunId}: Weekly notification complete. Sent: ${notificationsSent}, Skipped: ${notificationsSkipped}`);
+}
+// <<< END ADDED >>>
+
 // Schedule the task if the interval is valid
 if (AUTOMATION_CHECK_INTERVAL) {
     cron.schedule(AUTOMATION_CHECK_INTERVAL, checkAndSendNotifications);
@@ -1753,3 +1882,9 @@ if (AUTOMATION_CHECK_INTERVAL) {
 } else {
     console.log("Automated notification checker is disabled due to invalid cron pattern.");
 }
+
+// <<< ADDED: Schedule weekly Monday notifications >>>
+// Run every Monday at noon (12:00 PM)
+cron.schedule('0 12 * * 1', sendWeeklyMondayNotifications);
+console.log('Weekly Monday notification checker scheduled to run every Monday at noon');
+// <<< END ADDED >>>
