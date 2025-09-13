@@ -74,6 +74,7 @@ let specialAssignments = [];
 let removedAssignments = []; // <<< ADDED: State for removed slots
 let assignmentCounter = 0;
 let memberPositions = new Map(); // Store member position assignments
+let memberAvailabilities = new Map(); // Store member availability assignments
 let heldDays = new Map(); // Still use Map for temporary storage
 let memberAssignmentCounts = new Map(); // <<< ADDED: Store counts for statistics
 let memberStatsChart = null; // <<< ADDED: Store chart instance
@@ -105,7 +106,7 @@ async function fetchData() {
     console.log("Fetching data...");
     try {
         // <<< MODIFIED: Add removed assignments fetch >>>
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
@@ -113,11 +114,12 @@ async function fetchData() {
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
             fetch('/api/held-assignments'),
-            fetch('/api/removed-assignments') // Fetch removed assignments
+            fetch('/api/removed-assignments'), // Fetch removed assignments
+            fetch('/api/all-member-availabilities')
         ]);
 
         // <<< MODIFIED: Include new response in checks >>>
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes];
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailRes];
         if (responses.some(res => res.status === 401)) {
             console.warn("Session expired or unauthorized. Redirecting to login.");
             window.location.href = '/login.html?message=Session expired. Please log in.';
@@ -133,6 +135,7 @@ async function fetchData() {
         if (!allMemberPosRes.ok) errors.push(`All Member Positions: ${allMemberPosRes.status} ${allMemberPosRes.statusText}`);
         if (!heldAssignmentsRes.ok) errors.push(`Held Assignments: ${heldAssignmentsRes.status} ${heldAssignmentsRes.statusText}`);
         if (!removedAssignRes.ok) errors.push(`Removed Assignments: ${removedAssignRes.status} ${removedAssignRes.statusText}`); // Check removed assignments response
+        if (!allMemberAvailRes.ok) errors.push(`All Member Availabilities: ${allMemberAvailRes.status} ${allMemberAvailRes.statusText}`);
 
         if (errors.length > 0) { throw new Error(`HTTP error fetching data! Statuses - ${errors.join(', ')}`); }
 
@@ -144,11 +147,21 @@ async function fetchData() {
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
         removedAssignments = await removedAssignRes.json(); // Store removed assignments
+        const allMemberAvailabilitiesData = await allMemberAvailRes.json();
 
         memberPositions.clear();
         for (const memberName in allMemberPositionsData) {
             memberPositions.set(memberName, allMemberPositionsData[memberName]);
         }
+
+        memberAvailabilities.clear();
+        for (const memberName in allMemberAvailabilitiesData) {
+            memberAvailabilities.set(memberName, allMemberAvailabilitiesData[memberName]);
+        }
+        
+        // Debug: Log the availability data structure
+        console.log("All member availabilities loaded:", allMemberAvailabilitiesData);
+        console.log("MemberAvailabilities Map:", memberAvailabilities);
 
         heldDays.clear();
         heldAssignmentsData.forEach(assignment => {
@@ -164,6 +177,7 @@ async function fetchData() {
         console.log("Fetched Team Members:", teamMembers);
         console.log("Fetched Positions (with config):", positions);
         console.log("Fetched Member Positions:", memberPositions);
+        console.log("Fetched Member Availabilities:", memberAvailabilities);
         console.log("Fetched Held Assignments:", heldDays);
         console.log("Fetched Override Days:", overrideDays);
         console.log("Fetched Removed Assignments:", removedAssignments); // Log fetched data
@@ -245,7 +259,15 @@ function renderTeamList() {
             checkbox.type = 'checkbox';
             checkbox.value = position.id;
             checkbox.checked = memberCurrentPositions.some(p => p.id === position.id);
-            checkbox.addEventListener('change', () => updateMemberPositions(member.name));
+            checkbox.addEventListener('change', (event) => {
+                const li = event.target.closest('.team-member-item');
+                if (li && li.dataset.memberName) {
+                    updateMemberPositions(li.dataset.memberName);
+                } else {
+                    console.error("Could not find parent member item for position checkbox.", event.target);
+                    alert("An internal error occurred, could not update member positions.");
+                }
+            });
             
             label.appendChild(checkbox);
             label.appendChild(document.createTextNode(` ${position.name}`));
@@ -253,6 +275,49 @@ function renderTeamList() {
         });
         
         li.appendChild(positionsDiv);
+
+        const availabilityDiv = document.createElement('div');
+        availabilityDiv.className = 'member-availability';
+        availabilityDiv.style.marginTop = '10px';
+
+        const availabilityTitle = document.createElement('div');
+        availabilityTitle.className = 'member-section-title';
+        availabilityTitle.textContent = 'Available Days:';
+        availabilityDiv.appendChild(availabilityTitle);
+
+        const daysContainer = document.createElement('div');
+        daysContainer.className = 'member-section-content';
+
+        const daysOfWeek = [
+            { name: 'Sun', id: 1 }, { name: 'Mon', id: 2 }, { name: 'Tue', id: 3 },
+            { name: 'Wed', id: 4 }, { name: 'Thu', id: 5 }, { name: 'Fri', id: 6 }, { name: 'Sat', id: 7 }
+        ];
+        const memberCurrentAvailability = memberAvailabilities.get(member.name) || [];
+
+        daysOfWeek.forEach(day => {
+            const label = document.createElement('label');
+            label.className = 'availability-checkbox position-checkbox'; // Reuse position-checkbox style
+
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.value = day.id;
+            checkbox.checked = memberCurrentAvailability.some(d => d.id === day.id);
+            checkbox.addEventListener('change', (event) => {
+                const li = event.target.closest('.team-member-item');
+                if (li && li.dataset.memberName) {
+                    updateMemberAvailability(li.dataset.memberName);
+                } else {
+                    console.error("Could not find parent member item for availability checkbox.", event.target);
+                    alert("An internal error occurred, could not update member availability.");
+                }
+            });
+
+            label.appendChild(checkbox);
+            label.appendChild(document.createTextNode(` ${day.name}`));
+            daysContainer.appendChild(label);
+        });
+        availabilityDiv.appendChild(daysContainer);
+        li.appendChild(availabilityDiv);
 
         const editFormDiv = document.createElement('div');
         editFormDiv.className = 'edit-member-form';
@@ -296,12 +361,14 @@ function toggleEditMemberForm(memberName, show = true) {
     const infoDiv = li.querySelector('.member-info');
     const actionsDiv = li.querySelector('.member-actions');
     const positionsDiv = li.querySelector('.member-positions');
+    const availabilityDiv = li.querySelector('.member-availability');
     const editFormDiv = li.querySelector('.edit-member-form');
 
-    if (infoDiv && actionsDiv && positionsDiv && editFormDiv) {
+    if (infoDiv && actionsDiv && positionsDiv && availabilityDiv && editFormDiv) {
         infoDiv.style.display = show ? 'none' : '';
         actionsDiv.style.display = show ? 'none' : '';
         positionsDiv.style.display = show ? 'none' : '';
+        availabilityDiv.style.display = show ? 'none' : '';
         editFormDiv.style.display = show ? 'block' : 'none';
         if (show) {
             editFormDiv.querySelector('.edit-member-name-input')?.focus();
@@ -600,6 +667,8 @@ function renderRemovedAssignmentsList() {
 }
 
 function isMemberUnavailable(memberName, dateYYYYMMDD) {
+    // <<< FIXED: Removed redundant declaration of currentDayDate that caused SyntaxError
+    // This function now correctly relies on the date string passed to it.
     return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
 }
 
@@ -618,6 +687,10 @@ async function handleAssignmentClick(event) {
     if (!cell) return;
     const dateStr = cell.dataset.date;
     if (!dateStr) return;
+    
+    // Get day of week for availability check
+    const dayDate = new Date(dateStr + 'T00:00:00Z');
+    const currentDayOfWeek = dayDate.getUTCDay();
 
     // Don't allow editing on past days
     if (cell.classList.contains('past-day')) {
@@ -640,7 +713,9 @@ async function handleAssignmentClick(event) {
 
     // Find qualified & available members for this position on this date
     const availableQualifiedMembers = teamMembers.filter(member => {
-        return isMemberQualified(member.name, positionInfo.id) && !isMemberUnavailable(member.name, dateStr);
+        return isMemberQualified(member.name, positionInfo.id) && 
+               !isMemberUnavailable(member.name, dateStr) &&
+               isMemberAvailableOnDay(member.name, currentDayOfWeek);
     }).sort((a, b) => a.name.localeCompare(b.name)); // Sort members alphabetically
 
     const currentMemberName = assignmentDiv.classList.contains('assigned-position')
@@ -757,8 +832,8 @@ async function randomizeSingleDay(dateStr, cellElement) {
     console.log(`Randomizing single day: ${dateStr}`);
 
     // 1. Recalculate positions for the day (logic copied & adapted from renderCalendar pre-calc)
-    const currentDayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
-    const currentDayOfWeek = currentDayDate.getUTCDay();
+    const dayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
+    const currentDayOfWeek = dayDate.getUTCDay();
     let positionsForThisDay = [];
     const isOverrideDay = overrideDays.some(o => o.date === dateStr);
 
@@ -794,7 +869,15 @@ async function randomizeSingleDay(dateStr, cellElement) {
     const availableMembersToday = teamMembers.filter(member => {
         const isUnavailable = isMemberUnavailable(member.name, dateStr);
         const isQualifiedForAny = positionsForThisDay.some(pos => isMemberQualified(member.name, pos.id));
-        return !isUnavailable && isQualifiedForAny;
+        const isAvailableOnDay = isMemberAvailableOnDay(member.name, currentDayOfWeek);
+        
+        // Debug logging
+        console.log(`Member ${member.name}: unavailable=${isUnavailable}, qualified=${isQualifiedForAny}, availableOnDay=${isAvailableOnDay} (day ${currentDayOfWeek})`);
+        if (member.name === 'Mauro') {
+            console.log(`Mauro's availability data:`, memberAvailabilities.get('Mauro'));
+        }
+        
+        return !isUnavailable && isQualifiedForAny && isAvailableOnDay;
     }).map(m => m.name); // Just get names
 
     // Prepare message for skipped slots
@@ -816,8 +899,10 @@ async function randomizeSingleDay(dateStr, cellElement) {
         let assigned = false;
         for (let i = 0; i < memberPool.length; i++) {
             const potentialMember = memberPool[i];
-            // Check qualification AND if not already assigned today
-            if (isMemberQualified(potentialMember, position.id) && !membersAssignedThisDay.has(potentialMember)) {
+            // Check qualification, availability on this day, AND if not already assigned today
+            if (isMemberQualified(potentialMember, position.id) && 
+                isMemberAvailableOnDay(potentialMember, currentDayOfWeek) && 
+                !membersAssignedThisDay.has(potentialMember)) {
                 assignmentsMade.set(position.name, potentialMember);
                 membersAssignedThisDay.add(potentialMember);
                 memberPool.splice(i, 1); // Remove member from pool for this day
@@ -981,7 +1066,9 @@ function renderCalendar(year, month) {
 
                     // Find all available and qualified members *for this specific position* on this day
                     const candidatesForSlot = membersForAssignment.filter(memberName =>
-                        !isMemberUnavailable(memberName, currentDateStr) && isMemberQualified(memberName, position.id)
+                        !isMemberUnavailable(memberName, currentDateStr) && 
+                        isMemberQualified(memberName, position.id) &&
+                        isMemberAvailableOnDay(memberName, currentDayOfWeek)
                     );
 
                     while (assignedMemberName === null && attempts < memberCount) { // Outer loop still needed to cycle globally
@@ -1926,9 +2013,49 @@ async function updateMemberPositions(memberName) {
     });
 }
 
+async function updateMemberAvailability(memberName) {
+    const memberItem = teamList.querySelector(`.team-member-item[data-member-name="${memberName}"]`);
+
+    if (!memberItem) {
+        console.error(`Could not find list item for member: ${memberName}`);
+        return;
+    }
+
+    const checkedDays = Array.from(
+        memberItem.querySelectorAll('.member-availability input[type="checkbox"]:checked')
+    ).map(cb => parseInt(cb.value));
+
+    console.log(`Updating availability for ${memberName}:`, checkedDays);
+
+    await apiCall(`/api/member-availability/${encodeURIComponent(memberName)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dayIds: checkedDays })
+    });
+}
+
 function isMemberQualified(memberName, positionId) {
     const memberQuals = memberPositions.get(memberName) || [];
     return memberQuals.some(p => p.id === positionId);
+}
+
+// <<< ADDED: Function to check if member is available on a specific day of week >>>
+function isMemberAvailableOnDay(memberName, dayOfWeek) {
+    // If the member has no availability entries, assume they are available on all days
+    // This maintains backward compatibility where no availability is set
+    const memberAvailability = memberAvailabilities.get(memberName) || [];
+    console.log(`isMemberAvailableOnDay(${memberName}, ${dayOfWeek}): availability data:`, memberAvailability);
+    
+    if (memberAvailability.length === 0) {
+        console.log(`No availability data for ${memberName}, assuming available on all days`);
+        return true;
+    }
+    // Check if the member is available on this day of week
+    // dayOfWeek: 0=Sunday, 1=Monday, ..., 6=Saturday
+    // memberAvailability contains objects with day_index: 0=Sunday, 1=Monday, ..., 6=Saturday
+    const isAvailable = memberAvailability.some(day => day.day_index === dayOfWeek);
+    console.log(`${memberName} available on day ${dayOfWeek}: ${isAvailable}`);
+    return isAvailable;
 }
 
 async function saveCurrentAssignments() {

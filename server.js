@@ -248,6 +248,7 @@ async function fetchAllDataForSimulation() {
         const [removed] = await pool.query('SELECT assignment_date, position_id FROM removed_assignments');
         const [memberPosRows] = await pool.query('SELECT member_name, position_id FROM member_positions');
         const [held] = await pool.query('SELECT assignment_date, position_name, member_name FROM held_assignments');
+        const [memberAvailRows] = await pool.query('SELECT ma.member_name, d.day_index FROM member_availability ma JOIN days_of_week d ON ma.day_id = d.id');
 
         // Process member positions into a Map for easier lookup
         const memberPositionsMap = new Map();
@@ -255,6 +256,14 @@ async function fetchAllDataForSimulation() {
             const positionsForMember = memberPositionsMap.get(row.member_name) || new Set();
             positionsForMember.add(row.position_id);
             memberPositionsMap.set(row.member_name, positionsForMember);
+        });
+
+        // Process member availability into a Map for easier lookup
+        const memberAvailabilityMap = new Map();
+        memberAvailRows.forEach(row => {
+            const daysForMember = memberAvailabilityMap.get(row.member_name) || new Set();
+            daysForMember.add(row.day_index);
+            memberAvailabilityMap.set(row.member_name, daysForMember);
         });
 
         // Process overrides into a Map
@@ -279,7 +288,8 @@ async function fetchAllDataForSimulation() {
             specialAssignments: special.map(s => ({ ...s, date: s.assignment_date })), // Standardize date key
             removedAssignments: removed.map(r => ({ ...r, date: r.assignment_date})), // Standardize date key
             memberPositionsMap, // Map { memberName => Set<positionId> }
-            heldMap // Map { dateStr => Map { positionName => memberName } }
+            heldMap, // Map { dateStr => Map { positionName => memberName } }
+            memberAvailabilityMap // Map { memberName => Set<day_index> }
         };
     } catch (error) {
         console.error("Error fetching data for assignment simulation:", error);
@@ -294,7 +304,7 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
     const assignments = new Map(); // { dateStr => [{ position, assignedMemberName, isHeld, eventTime }, ...] }
     if (!simulationData) return assignments; // Return empty if data fetch failed
 
-    const { members, unavailability, positions, overrideMap, specialAssignments, removedAssignments, memberPositionsMap, heldMap } = simulationData;
+    const { members, unavailability, positions, overrideMap, specialAssignments, removedAssignments, memberPositionsMap, heldMap, memberAvailabilityMap } = simulationData;
 
     const membersForAssignment = members.map(m => m.name); // Just need names for rotation
     const memberCount = membersForAssignment.length;
@@ -320,6 +330,15 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
     // --- Helper: Check qualification ---
     const isMemberQualified = (memberName, positionId) => {
         return memberPositionsMap.has(memberName) && memberPositionsMap.get(memberName).has(positionId);
+    };
+    // --- Helper: Check if member is available on this day of week ---
+    const isMemberAvailableOnDay = (memberName, dayOfWeek) => {
+        // If the map is empty, or the member has no entries, we assume they are available on all days.
+        // This maintains backward compatibility where no availability is set.
+        if (!memberAvailabilityMap.has(memberName) || memberAvailabilityMap.get(memberName).size === 0) {
+            return true;
+        }
+        return memberAvailabilityMap.get(memberName).has(dayOfWeek);
     };
      // --- Helper: Check if assignment is removed ---
     const removedSet = new Map(); // { dateStr => Set<positionId> }
@@ -418,7 +437,8 @@ async function simulateAssignmentsForDateRange(startDateStr, endDateStr, simulat
                         const potentialMemberName = membersForAssignment[potentialMemberIndex];
 
                         if (!isMemberUnavailable(potentialMemberName, currentDateStr) &&
-                            isMemberQualified(potentialMemberName, position.id))
+                            isMemberQualified(potentialMemberName, position.id) &&
+                            isMemberAvailableOnDay(potentialMemberName, currentDayOfWeek))
                         {
                             assignedMemberName = potentialMemberName;
                             assignmentCounter = (assignmentCounter + attempts + 1); // Advance counter *only* on successful assignment
@@ -1040,6 +1060,74 @@ app.get('/api/all-member-positions', async (req, res) => {
         res.status(500).json({ message: 'Server error fetching all member positions.' });
     }
 });
+
+// --- MEMBER AVAILABILITY API ---
+app.get('/api/all-member-availabilities', async (req, res) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT ma.member_name, d.id as day_id, d.name as day_name, d.day_index
+             FROM member_availability ma
+             JOIN days_of_week d ON ma.day_id = d.id
+             ORDER BY ma.member_name, d.day_index`
+        );
+        const allMemberAvailabilities = rows.reduce((acc, row) => {
+            if (!acc[row.member_name]) {
+                acc[row.member_name] = [];
+            }
+            acc[row.member_name].push({ id: row.day_id, name: row.day_name, day_index: row.day_index });
+            return acc;
+        }, {});
+        res.json(allMemberAvailabilities);
+    } catch (error) {
+        console.error('Error fetching all member availabilities:', error);
+        res.status(500).json({ message: 'Server error fetching all member availabilities.' });
+    }
+});
+
+app.post('/api/member-availability/:memberName', requireLogin('admin'), async (req, res) => {
+    const memberName = decodeURIComponent(req.params.memberName);
+    const { dayIds } = req.body;
+
+    if (!Array.isArray(dayIds)) {
+        return res.status(400).send('Day IDs must be provided as an array.');
+    }
+
+    const connection = await pool.getConnection();
+    try {
+        await connection.beginTransaction();
+        // Check member existence
+        const [memberExists] = await connection.query('SELECT 1 FROM team_members WHERE name = ?', [memberName]);
+        if (memberExists.length === 0) {
+             await connection.rollback();
+             return res.status(404).send(`Team member '${memberName}' not found.`);
+        }
+        // Delete existing availability for this member
+        await connection.query('DELETE FROM member_availability WHERE member_name = ?', [memberName]);
+
+        // Insert new availability
+        if (dayIds.length > 0) {
+            const values = dayIds.map(id => [memberName, id]);
+            await connection.query(
+                'INSERT INTO member_availability (member_name, day_id) VALUES ?',
+                [values]
+            );
+        }
+
+        await connection.commit();
+        res.json({ success: true });
+    } catch (error) {
+        await connection.rollback();
+        console.error(`Error updating member availability for ${memberName}:`, error);
+        if (error.code === 'ER_NO_REFERENCED_ROW_2') {
+             // This likely means a day ID doesn't exist.
+             return res.status(404).send(`One or more day IDs provided do not exist.`);
+        }
+        res.status(500).send('Server error updating member availability.');
+    } finally {
+        connection.release();
+    }
+});
+
 
 // --- HELD ASSIGNMENTS API ---
 app.get('/api/held-assignments', async (req, res) => {

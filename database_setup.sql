@@ -73,6 +73,34 @@ CREATE TABLE IF NOT EXISTS member_positions (
     FOREIGN KEY (position_id) REFERENCES positions(id) ON DELETE CASCADE
 );
 
+-- Create the days_of_week table
+CREATE TABLE IF NOT EXISTS days_of_week (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(20) NOT NULL UNIQUE,
+    day_index INT NOT NULL UNIQUE
+);
+
+-- Populate the days_of_week table
+INSERT INTO days_of_week (name, day_index) VALUES
+('Sunday', 0),
+('Monday', 1),
+('Tuesday', 2),
+('Wednesday', 3),
+('Thursday', 4),
+('Friday', 5),
+('Saturday', 6)
+ON DUPLICATE KEY UPDATE name=name; -- Avoid error if they exist
+
+-- Create the member_availability table
+CREATE TABLE IF NOT EXISTS member_availability (
+    member_name VARCHAR(100) NOT NULL,
+    day_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (member_name, day_id),
+    FOREIGN KEY (member_name) REFERENCES team_members(name) ON DELETE CASCADE,
+    FOREIGN KEY (day_id) REFERENCES days_of_week(id) ON DELETE CASCADE
+);
+
 -- Add new table for held assignments
 CREATE TABLE IF NOT EXISTS held_assignments (
     id INT AUTO_INCREMENT PRIMARY KEY,

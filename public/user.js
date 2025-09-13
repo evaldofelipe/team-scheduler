@@ -16,6 +16,7 @@ let specialAssignments = [];
 let removedAssignments = []; // <<< ADDED: State for removed slots (user view)
 let assignmentCounter = 0;
 let memberPositions = new Map(); // { memberName => [{id, name}, ...] }
+let memberAvailabilities = new Map(); // { memberName => [{id, name, day_index}, ...] }
 let heldDays = new Map(); // <<< ADDED: Store held assignments { dateStr => [{position_name, member_name}, ...] }
 
 // --- Configuration ---
@@ -68,7 +69,7 @@ async function fetchData() {
     console.log("Buscando dados para a visualização do usuário...");
     try {
         // Fetch all data needed
-        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes] = await Promise.all([
+        const [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailRes] = await Promise.all([
             fetch('/api/team-members'),
             fetch('/api/unavailability'),
             fetch('/api/positions'),
@@ -76,15 +77,16 @@ async function fetchData() {
             fetch('/api/special-assignments'),
             fetch('/api/all-member-positions'),
             fetch('/api/held-assignments'),
-            fetch('/api/removed-assignments') // Fetch removed assignments
+            fetch('/api/removed-assignments'), // Fetch removed assignments
+            fetch('/api/all-member-availabilities')
         ]);
 
         // Check for errors (excluding 401 redirect for public view)
-        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes];
+        const responses = [membersRes, unavailRes, positionsRes, overridesRes, specialAssignRes, allMemberPosRes, heldAssignmentsRes, removedAssignRes, allMemberAvailRes];
         const errors = [];
         responses.forEach((res, index) => {
             if (!res.ok) {
-                const apiName = ['Membros', 'Indisponibilidade', 'Posições', 'Overrides', 'Tarefas Especiais', 'Qualificações', 'Tarefas Salvas', 'Tarefas Removidas'][index];
+                const apiName = ['Membros', 'Indisponibilidade', 'Posições', 'Overrides', 'Tarefas Especiais', 'Qualificações', 'Tarefas Salvas', 'Tarefas Removidas', 'Disponibilidades'][index];
                 // Don't redirect on 401/403 from public view, just log and report error
                 if (res.status === 401 || res.status === 403) {
                      console.warn(`Erro de autorização (${res.status}) buscando ${apiName}. Este endpoint pode precisar ser público.`);
@@ -109,11 +111,17 @@ async function fetchData() {
         const allMemberPositionsData = await allMemberPosRes.json();
         const heldAssignmentsData = await heldAssignmentsRes.json();
         removedAssignments = await removedAssignRes.json(); // <<< ADDED: Store removed assignments
+        const allMemberAvailabilitiesData = await allMemberAvailRes.json();
 
         // Convert member positions object into a Map
         memberPositions.clear();
         for (const memberName in allMemberPositionsData) {
             memberPositions.set(memberName, allMemberPositionsData[memberName]);
+        }
+
+        memberAvailabilities.clear();
+        for (const memberName in allMemberAvailabilitiesData) {
+            memberAvailabilities.set(memberName, allMemberAvailabilitiesData[memberName]);
         }
 
         // <<< ADDED: Process and store held assignments into the heldDays Map >>>
@@ -132,6 +140,7 @@ async function fetchData() {
 
         console.log("Posições buscadas (com config):", positions);
         console.log("Qualificações de Membros buscadas:", memberPositions);
+        console.log("Disponibilidades de Membros buscadas:", memberAvailabilities);
         console.log("Tarefas Salvas buscadas:", heldDays);
         console.log("Override Days buscados:", overrideDays);
         console.log("Tarefas Removidas buscadas:", removedAssignments); // <<< ADDED: Log removed
@@ -160,6 +169,15 @@ function isMemberUnavailable(memberName, dateYYYYMMDD) { /* ... unchanged ... */
 function isMemberQualified(memberName, positionId) {
     const memberQuals = memberPositions.get(memberName) || [];
     return memberQuals.some(p => p.id === positionId);
+}
+
+function isMemberAvailableOnDay(memberName, dayOfWeek) {
+    // If member has no specific availability set, assume they are available.
+    if (!memberAvailabilities.has(memberName) || memberAvailabilities.get(memberName).length === 0) {
+        return true;
+    }
+    const memberCurrentAvailability = memberAvailabilities.get(memberName) || [];
+    return memberCurrentAvailability.some(d => d.day_index === dayOfWeek);
 }
 
 // Removed shouldAssignOnDate - logic is now within renderCalendar
@@ -330,7 +348,8 @@ function renderCalendar(year, month) {
                                 const potentialMemberName = potentialMemberObject.name; // Get name string
 
                                 if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
-                                    isMemberQualified(potentialMemberName, position.id)) // Pass name string
+                                    isMemberQualified(potentialMemberName, position.id) &&
+                                    isMemberAvailableOnDay(potentialMemberName, currentDayOfWeek)) // Pass name string
                                 {
                                     assignedMemberName = potentialMemberName; // Assign name string
                                     assignmentCounter = (assignmentCounter + attempts + 1);
@@ -497,7 +516,8 @@ function renderCalendar(year, month) {
                         const potentialMemberName = potentialMemberObject.name; // Get name string
 
                         if (!isMemberUnavailable(potentialMemberName, currentCellDateStr) &&
-                            isMemberQualified(potentialMemberName, position.id)) // Pass name string
+                            isMemberQualified(potentialMemberName, position.id) &&
+                            isMemberAvailableOnDay(potentialMemberName, currentDayOfWeek)) // Pass name string
                         {
                             assignedMemberName = potentialMemberName; // Assign name string
                             mobileAssignmentCounter = (mobileAssignmentCounter + attempts + 1);
@@ -633,7 +653,8 @@ function displayNextEventInfo() {
                             const potentialMemberName = potentialMemberObject.name;
 
                             if (!isMemberUnavailable(potentialMemberName, currentDateStr) &&
-                                isMemberQualified(potentialMemberName, position.id)) {
+                                isMemberQualified(potentialMemberName, position.id) &&
+                                isMemberAvailableOnDay(potentialMemberName, currentDayOfWeek)) {
                                 assignedMemberName = potentialMemberName;
                                 simulationCounter = (simulationCounter + attempts + 1); // Advance counter
                             } else {
