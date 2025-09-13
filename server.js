@@ -1552,6 +1552,73 @@ app.delete('/api/removed-assignments/:id', requireLogin('admin'), async (req, re
 });
 // --- END REMOVED ASSIGNMENTS API ---
 
+// <<< ADDED: Helper function to get weekly Monday notifications for admin UI >>>
+async function getWeeklyMondayNotifications() {
+    const weeklyNotifications = [];
+    
+    try {
+        // Calculate next Monday at noon
+        const now = new Date();
+        const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+        const daysUntilMonday = currentDay === 0 ? 1 : (8 - currentDay) % 7; // Days until next Monday
+        
+        const nextMonday = new Date(now);
+        nextMonday.setDate(now.getDate() + daysUntilMonday);
+        nextMonday.setHours(12, 0, 0, 0); // Set to noon
+        
+        // Only include if it's in the next 7 days
+        const sevenDaysFromNow = new Date(now);
+        sevenDaysFromNow.setDate(now.getDate() + 7);
+        
+        if (nextMonday <= sevenDaysFromNow) {
+            // Calculate the week that will be covered (Monday to Sunday)
+            const weekStart = new Date(nextMonday);
+            weekStart.setDate(nextMonday.getDate() - 7); // Go back to the Monday of current week
+            weekStart.setHours(0, 0, 0, 0);
+            
+            const weekEnd = new Date(weekStart);
+            weekEnd.setDate(weekStart.getDate() + 6);
+            weekEnd.setHours(23, 59, 59, 999);
+            
+            const startDateStr = formatDateYYYYMMDD(weekStart);
+            const endDateStr = formatDateYYYYMMDD(weekEnd);
+            
+            // Get simulation data
+            const simulationData = await fetchAllDataForSimulation();
+            if (simulationData) {
+                // Simulate assignments for the week
+                const simulated = await simulateAssignmentsForDateRange(startDateStr, endDateStr, simulationData);
+                
+                // Count members with assignments for this week
+                const membersWithAssignments = new Set();
+                simulated.forEach((dailyAssignments) => {
+                    dailyAssignments.forEach(assignment => {
+                        if (assignment.assignedMemberName) {
+                            membersWithAssignments.add(assignment.assignedMemberName);
+                        }
+                    });
+                });
+                
+                if (membersWithAssignments.size > 0) {
+                    weeklyNotifications.push({
+                        memberName: `Weekly Notification (${membersWithAssignments.size} members)`,
+                        positionName: 'Current Week Schedule',
+                        assignmentDate: `${startDateStr} to ${endDateStr}`,
+                        eventTime: '12:00',
+                        notificationTime: nextMonday.toISOString(),
+                        isWeekly: true // Flag to identify weekly notifications
+                    });
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error calculating weekly Monday notifications:', error);
+    }
+    
+    return weeklyNotifications;
+}
+// <<< END ADDED >>>
+
 // <<< MODIFIED ENDPOINT: Get upcoming scheduled notifications (for Admin UI) >>>
 app.get('/api/upcoming-notifications', requireLogin('admin'), async (req, res) => {
     console.log("GET /api/upcoming-notifications called");
@@ -1606,6 +1673,10 @@ app.get('/api/upcoming-notifications', requireLogin('admin'), async (req, res) =
             }
         });
     });
+
+    // <<< ADDED: Add weekly Monday notifications >>>
+    const weeklyNotifications = await getWeeklyMondayNotifications();
+    upcomingNotifications.push(...weeklyNotifications);
 
     // Sort by notification time
     upcomingNotifications.sort((a, b) => new Date(a.notificationTime) - new Date(b.notificationTime));
