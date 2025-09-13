@@ -255,7 +255,15 @@ function renderTeamList() {
             checkbox.type = 'checkbox';
             checkbox.value = position.id;
             checkbox.checked = memberCurrentPositions.some(p => p.id === position.id);
-            checkbox.addEventListener('change', () => updateMemberPositions(member.name));
+            checkbox.addEventListener('change', (event) => {
+                const li = event.target.closest('.team-member-item');
+                if (li && li.dataset.memberName) {
+                    updateMemberPositions(li.dataset.memberName);
+                } else {
+                    console.error("Could not find parent member item for position checkbox.", event.target);
+                    alert("An internal error occurred, could not update member positions.");
+                }
+            });
             
             label.appendChild(checkbox);
             label.appendChild(document.createTextNode(` ${position.name}`));
@@ -290,7 +298,15 @@ function renderTeamList() {
             checkbox.type = 'checkbox';
             checkbox.value = day.id;
             checkbox.checked = memberCurrentAvailability.some(d => d.id === day.id);
-            checkbox.addEventListener('change', () => updateMemberAvailability(member.name));
+            checkbox.addEventListener('change', (event) => {
+                const li = event.target.closest('.team-member-item');
+                if (li && li.dataset.memberName) {
+                    updateMemberAvailability(li.dataset.memberName);
+                } else {
+                    console.error("Could not find parent member item for availability checkbox.", event.target);
+                    alert("An internal error occurred, could not update member availability.");
+                }
+            });
 
             label.appendChild(checkbox);
             label.appendChild(document.createTextNode(` ${day.name}`));
