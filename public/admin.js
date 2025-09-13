@@ -158,6 +158,10 @@ async function fetchData() {
         for (const memberName in allMemberAvailabilitiesData) {
             memberAvailabilities.set(memberName, allMemberAvailabilitiesData[memberName]);
         }
+        
+        // Debug: Log the availability data structure
+        console.log("All member availabilities loaded:", allMemberAvailabilitiesData);
+        console.log("MemberAvailabilities Map:", memberAvailabilities);
 
         heldDays.clear();
         heldAssignmentsData.forEach(assignment => {
@@ -663,6 +667,8 @@ function renderRemovedAssignmentsList() {
 }
 
 function isMemberUnavailable(memberName, dateYYYYMMDD) {
+    // <<< FIXED: Removed redundant declaration of currentDayDate that caused SyntaxError
+    // This function now correctly relies on the date string passed to it.
     return unavailableEntries.some(entry => entry.date === dateYYYYMMDD && entry.member === memberName);
 }
 
@@ -681,6 +687,10 @@ async function handleAssignmentClick(event) {
     if (!cell) return;
     const dateStr = cell.dataset.date;
     if (!dateStr) return;
+    
+    // Get day of week for availability check
+    const dayDate = new Date(dateStr + 'T00:00:00Z');
+    const currentDayOfWeek = dayDate.getUTCDay();
 
     // Don't allow editing on past days
     if (cell.classList.contains('past-day')) {
@@ -703,7 +713,9 @@ async function handleAssignmentClick(event) {
 
     // Find qualified & available members for this position on this date
     const availableQualifiedMembers = teamMembers.filter(member => {
-        return isMemberQualified(member.name, positionInfo.id) && !isMemberUnavailable(member.name, dateStr);
+        return isMemberQualified(member.name, positionInfo.id) && 
+               !isMemberUnavailable(member.name, dateStr) &&
+               isMemberAvailableOnDay(member.name, currentDayOfWeek);
     }).sort((a, b) => a.name.localeCompare(b.name)); // Sort members alphabetically
 
     const currentMemberName = assignmentDiv.classList.contains('assigned-position')
@@ -820,8 +832,8 @@ async function randomizeSingleDay(dateStr, cellElement) {
     console.log(`Randomizing single day: ${dateStr}`);
 
     // 1. Recalculate positions for the day (logic copied & adapted from renderCalendar pre-calc)
-    const currentDayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
-    const currentDayOfWeek = currentDayDate.getUTCDay();
+    const dayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
+    const currentDayOfWeek = dayDate.getUTCDay();
     let positionsForThisDay = [];
     const isOverrideDay = overrideDays.some(o => o.date === dateStr);
 
@@ -854,13 +866,18 @@ async function randomizeSingleDay(dateStr, cellElement) {
     }
 
     // 2. Get qualified & available members for *any* position today
-    const currentDayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
-    const currentDayOfWeek = currentDayDate.getUTCDay();
     const availableMembersToday = teamMembers.filter(member => {
         const isUnavailable = isMemberUnavailable(member.name, dateStr);
         const isQualifiedForAny = positionsForThisDay.some(pos => isMemberQualified(member.name, pos.id));
-        const isAvailableThisDay = isMemberAvailableOnDay(member.name, currentDayOfWeek);
-        return !isUnavailable && isQualifiedForAny && isAvailableThisDay;
+        const isAvailableOnDay = isMemberAvailableOnDay(member.name, currentDayOfWeek);
+        
+        // Debug logging
+        console.log(`Member ${member.name}: unavailable=${isUnavailable}, qualified=${isQualifiedForAny}, availableOnDay=${isAvailableOnDay} (day ${currentDayOfWeek})`);
+        if (member.name === 'Mauro') {
+            console.log(`Mauro's availability data:`, memberAvailabilities.get('Mauro'));
+        }
+        
+        return !isUnavailable && isQualifiedForAny && isAvailableOnDay;
     }).map(m => m.name); // Just get names
 
     // Prepare message for skipped slots
@@ -882,8 +899,10 @@ async function randomizeSingleDay(dateStr, cellElement) {
         let assigned = false;
         for (let i = 0; i < memberPool.length; i++) {
             const potentialMember = memberPool[i];
-            // Check qualification AND if not already assigned today
-            if (isMemberQualified(potentialMember, position.id) && !membersAssignedThisDay.has(potentialMember)) {
+            // Check qualification, availability on this day, AND if not already assigned today
+            if (isMemberQualified(potentialMember, position.id) && 
+                isMemberAvailableOnDay(potentialMember, currentDayOfWeek) && 
+                !membersAssignedThisDay.has(potentialMember)) {
                 assignmentsMade.set(position.name, potentialMember);
                 membersAssignedThisDay.add(potentialMember);
                 memberPool.splice(i, 1); // Remove member from pool for this day
@@ -1047,7 +1066,7 @@ function renderCalendar(year, month) {
 
                     // Find all available and qualified members *for this specific position* on this day
                     const candidatesForSlot = membersForAssignment.filter(memberName =>
-                        !isMemberUnavailable(memberName, currentDateStr) &&
+                        !isMemberUnavailable(memberName, currentDateStr) && 
                         isMemberQualified(memberName, position.id) &&
                         isMemberAvailableOnDay(memberName, currentDayOfWeek)
                     );
@@ -2020,13 +2039,23 @@ function isMemberQualified(memberName, positionId) {
     return memberQuals.some(p => p.id === positionId);
 }
 
+// <<< ADDED: Function to check if member is available on a specific day of week >>>
 function isMemberAvailableOnDay(memberName, dayOfWeek) {
-    // If member has no specific availability set, assume they are available.
-    if (!memberAvailabilities.has(memberName) || memberAvailabilities.get(memberName).length === 0) {
+    // If the member has no availability entries, assume they are available on all days
+    // This maintains backward compatibility where no availability is set
+    const memberAvailability = memberAvailabilities.get(memberName) || [];
+    console.log(`isMemberAvailableOnDay(${memberName}, ${dayOfWeek}): availability data:`, memberAvailability);
+    
+    if (memberAvailability.length === 0) {
+        console.log(`No availability data for ${memberName}, assuming available on all days`);
         return true;
     }
-    const memberCurrentAvailability = memberAvailabilities.get(memberName) || [];
-    return memberCurrentAvailability.some(d => d.day_index === dayOfWeek);
+    // Check if the member is available on this day of week
+    // dayOfWeek: 0=Sunday, 1=Monday, ..., 6=Saturday
+    // memberAvailability contains objects with day_index: 0=Sunday, 1=Monday, ..., 6=Saturday
+    const isAvailable = memberAvailability.some(day => day.day_index === dayOfWeek);
+    console.log(`${memberName} available on day ${dayOfWeek}: ${isAvailable}`);
+    return isAvailable;
 }
 
 async function saveCurrentAssignments() {
