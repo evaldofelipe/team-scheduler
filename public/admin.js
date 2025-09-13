@@ -854,10 +854,13 @@ async function randomizeSingleDay(dateStr, cellElement) {
     }
 
     // 2. Get qualified & available members for *any* position today
+    const currentDayDate = new Date(dateStr + 'T00:00:00Z'); // Use Z for UTC interpretation
+    const currentDayOfWeek = currentDayDate.getUTCDay();
     const availableMembersToday = teamMembers.filter(member => {
         const isUnavailable = isMemberUnavailable(member.name, dateStr);
         const isQualifiedForAny = positionsForThisDay.some(pos => isMemberQualified(member.name, pos.id));
-        return !isUnavailable && isQualifiedForAny;
+        const isAvailableThisDay = isMemberAvailableOnDay(member.name, currentDayOfWeek);
+        return !isUnavailable && isQualifiedForAny && isAvailableThisDay;
     }).map(m => m.name); // Just get names
 
     // Prepare message for skipped slots
@@ -1044,7 +1047,9 @@ function renderCalendar(year, month) {
 
                     // Find all available and qualified members *for this specific position* on this day
                     const candidatesForSlot = membersForAssignment.filter(memberName =>
-                        !isMemberUnavailable(memberName, currentDateStr) && isMemberQualified(memberName, position.id)
+                        !isMemberUnavailable(memberName, currentDateStr) &&
+                        isMemberQualified(memberName, position.id) &&
+                        isMemberAvailableOnDay(memberName, currentDayOfWeek)
                     );
 
                     while (assignedMemberName === null && attempts < memberCount) { // Outer loop still needed to cycle globally
@@ -2013,6 +2018,15 @@ async function updateMemberAvailability(memberName) {
 function isMemberQualified(memberName, positionId) {
     const memberQuals = memberPositions.get(memberName) || [];
     return memberQuals.some(p => p.id === positionId);
+}
+
+function isMemberAvailableOnDay(memberName, dayOfWeek) {
+    // If member has no specific availability set, assume they are available.
+    if (!memberAvailabilities.has(memberName) || memberAvailabilities.get(memberName).length === 0) {
+        return true;
+    }
+    const memberCurrentAvailability = memberAvailabilities.get(memberName) || [];
+    return memberCurrentAvailability.some(d => d.day_index === dayOfWeek);
 }
 
 async function saveCurrentAssignments() {
